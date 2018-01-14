@@ -123,8 +123,8 @@ IssueCommentDoubleTapDelegate {
     private func clearCollapseCells() {
         // clear any collapse state before updating so we don't have a dangling overlay
         for cell in collectionContext?.visibleCells(for: self) ?? [] {
-            if let cell = cell as? CollapsibleCell {
-                cell.setCollapse(visible: false)
+            if let cell = cell as? IssueCommentBaseCell {
+                cell.collapsed = false
             }
         }
     }
@@ -163,7 +163,7 @@ IssueCommentDoubleTapDelegate {
     }
 
     func edit(markdown: String) {
-        guard let width = collectionContext?.containerSize.width else { return }
+        guard let width = collectionContext?.insetContainerSize.width else { return }
         let options = commentModelOptions(owner: model.owner, repo: model.repo)
         let bodyModels = CreateCommentModels(markdown: markdown, width: width, options: options, viewerCanUpdate: true)
         bodyEdits = (markdown, bodyModels)
@@ -230,7 +230,7 @@ IssueCommentDoubleTapDelegate {
         guard let viewModel = viewModel as? ListDiffable
             else { fatalError("Collection context must be set") }
 
-        let width = (collectionContext?.containerSize.width ?? 0) - inset.left - inset.right
+        let width = (collectionContext?.insetContainerSize.width ?? 0) - inset.left - inset.right
 
         let height: CGFloat
         if collapsed && (viewModel as AnyObject) === object?.collapse?.model {
@@ -284,8 +284,8 @@ IssueCommentDoubleTapDelegate {
             else { fatalError("Cell not bindable") }
 
         // extra config outside of bind API. applies to multiple cell types.
-        if let cell = cell as? CollapsibleCell {
-            cell.setCollapse(visible: collapsed && (viewModel as AnyObject) === object?.collapse?.model)
+        if let cell = cell as? IssueCommentBaseCell {
+            cell.collapsed = collapsed && (viewModel as AnyObject) === object?.collapse?.model
         }
 
         // connect specific cell delegates
