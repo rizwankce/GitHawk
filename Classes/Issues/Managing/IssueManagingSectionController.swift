@@ -8,51 +8,59 @@
 
 import Foundation
 import IGListKit
+import GitHubAPI
+import ContextMenu
 
 final class IssueManagingSectionController: ListBindingSectionController<IssueManagingModel>,
 ListBindingSectionControllerDataSource,
 ListBindingSectionControllerSelectionDelegate,
-LabelsViewControllerDelegate,
-MilestonesViewControllerDelegate,
-PeopleViewControllerDelegate {
+ContextMenuDelegate {
 
     private enum Action {
         static let labels = IssueManagingActionModel(
+            key: "tag",
             label: NSLocalizedString("Labels", comment: ""),
             imageName: "tag",
             color: "3f88f7".color
         )
         static let milestone = IssueManagingActionModel(
+            key: "milestone",
             label: NSLocalizedString("Milestone", comment: ""),
             imageName: "milestone",
             color: "6847ba".color
         )
         static let assignees = IssueManagingActionModel(
+            key: "person",
             label: NSLocalizedString("Assignees", comment: ""),
             imageName: "person",
             color: "e77230".color
         )
         static let reviewers = IssueManagingActionModel(
+            key: "reviewer",
             label: NSLocalizedString("Reviewers", comment: ""),
             imageName: "reviewer",
             color: "50a451".color
         )
         static let lock = IssueManagingActionModel(
+            key: "lock", // share key so lock/unlock just updates cell
             label: NSLocalizedString("Lock", comment: ""),
             imageName: "lock",
             color: Styles.Colors.Gray.dark.color
         )
         static let unlock = IssueManagingActionModel(
+            key: "lock", // share key so lock/unlock just updates cell
             label: NSLocalizedString("Unlock", comment: ""),
             imageName: "key",
             color: Styles.Colors.Gray.dark.color
         )
         static let reopen = IssueManagingActionModel(
+            key: "open", // share key so open/close just updates cell
             label: Constants.Strings.reopen,
             imageName: "sync",
             color: Styles.Colors.Green.medium.color
         )
         static let close = IssueManagingActionModel(
+            key: "open", // share key so open/close just updates cell
             label: Constants.Strings.close,
             imageName: "x",
             color: Styles.Colors.Red.medium.color
@@ -66,8 +74,12 @@ PeopleViewControllerDelegate {
     init(model: IssueDetailsModel, client: GithubClient) {
         self.model = model
         self.client = client
+
         super.init()
+
         inset = UIEdgeInsets(top: Styles.Sizes.gutter, left: 0, bottom: Styles.Sizes.gutter, right: 0)
+        minimumInteritemSpacing = Styles.Sizes.rowSpacing
+        minimumLineSpacing = Styles.Sizes.rowSpacing
         selectionDelegate = self
         dataSource = self
     }
@@ -80,58 +92,59 @@ PeopleViewControllerDelegate {
     }
 
     func newLabelsController() -> UIViewController {
-        guard let controller = UIStoryboard(name: "Labels", bundle: nil).instantiateInitialViewController() as? LabelsViewController
-            else { fatalError("Missing labels view controller") }
-        controller.configure(
+        return LabelsViewController(
             selected: issueResult?.labels.labels ?? [],
             client: client,
             owner: model.owner,
-            repo: model.repo,
-            delegate: self
+            repo: model.repo
         )
-        return controller
     }
 
     func newMilestonesController() -> UIViewController {
-        guard let controller = UIStoryboard(name: "Milestones", bundle: nil).instantiateInitialViewController() as? MilestonesViewController
-            else { fatalError("Missing milestones view controller") }
-        controller.configure(
+        return MilestonesViewController(
             client: client,
             owner: model.owner,
             repo: model.repo,
-            selected: issueResult?.milestone,
-            delegate: self
+            selected: issueResult?.milestone
         )
-        return controller
     }
 
     func newPeopleController(type: PeopleViewController.PeopleType) -> UIViewController {
-        guard let controller = UIStoryboard(name: "People", bundle: nil).instantiateInitialViewController() as? PeopleViewController
-            else { fatalError("Missing people view controller") }
-
         let selections: [String]
+        let exclusions: [String]
         switch type {
-        case .assignee: selections = issueResult?.assignee.users.map { $0.login } ?? []
-        case .reviewer: selections = issueResult?.reviewers?.users.map { $0.login } ?? []
+        case .assignee:
+            selections = issueResult?.assignee.users.map { $0.login } ?? []
+            exclusions = []
+        case .reviewer:
+            selections = issueResult?.reviewers?.users.map { $0.login } ?? []
+            if let isPullRequest = issueResult?.pullRequest,
+                let pullRequestAuthor = issueResult?.rootComment?.details.login,
+                isPullRequest {
+                exclusions = [pullRequestAuthor]
+            } else {
+                exclusions = []
+            }
         }
-
-        controller.configure(
+        return PeopleViewController(
             selections: selections,
+            exclusions: exclusions,
             type: type,
             client: client,
-            delegate: self,
             owner: model.owner,
             repo: model.repo
         )
-        return controller
     }
 
     func present(controller: UIViewController, from cell: UICollectionViewCell) {
-        let nav = UINavigationController(rootViewController: controller)
-        nav.modalPresentationStyle = .popover
-        nav.popoverPresentationController?.sourceView = cell
-        nav.popoverPresentationController?.sourceRect = cell.bounds
-        viewController?.present(nav, animated: trueUnlessReduceMotionEnabled)
+        guard let viewController = self.viewController else { return }
+        ContextMenu.shared.show(
+            sourceViewController: viewController,
+            viewController: controller,
+            options: ContextMenu.Options(menuStyle: .minimal),
+            sourceView: cell,
+            delegate: self
+        )
     }
 
     func close(_ doClose: Bool) {
@@ -160,6 +173,17 @@ PeopleViewControllerDelegate {
         )
 
         Haptic.triggerNotification(.success)
+    }
+
+    func didDismiss(selected labels: [RepositoryLabel]) {
+        guard let previous = issueResult else { return }
+        client.mutateLabels(
+            previous: previous,
+            owner: model.owner,
+            repo: model.repo,
+            number: model.number,
+            labels: labels
+        )
     }
 
     // MARK: ListBindingSectionControllerDataSource
@@ -205,14 +229,10 @@ PeopleViewControllerDelegate {
             else { fatalError("Collection context must be set") }
 
         let height = IssueManagingActionCell.height
-        let width = HangingChadItemWidth(
-            index: index,
-            count: viewModels.count,
-            containerWidth: containerWidth,
-            desiredItemWidth: height
-        )
+
+        let rawRowCount = min(CGFloat(viewModels.count), floor(containerWidth / (height + minimumInteritemSpacing)))
         return CGSize(
-            width: width,
+            width: floor((containerWidth - (rawRowCount - 1) * minimumInteritemSpacing) / rawRowCount),
             height: height
         )
     }
@@ -242,8 +262,7 @@ PeopleViewControllerDelegate {
             else { return }
 
         if viewModel === Action.labels {
-            let controller = newLabelsController()
-            present(controller: controller, from: cell)
+            present(controller: newLabelsController(), from: cell)
         } else if viewModel === Action.milestone {
             let controller = newMilestonesController()
             present(controller: controller, from: cell)
@@ -264,50 +283,28 @@ PeopleViewControllerDelegate {
         }
     }
 
-    // MARK: LabelsViewControllerDelegate
-
-    func didDismiss(controller: LabelsViewController, selectedLabels: [RepositoryLabel]) {
-        guard let previous = issueResult else { return }
-        client.mutateLabels(
-            previous: previous,
-            owner: model.owner,
-            repo: model.repo,
-            number: model.number,
-            labels: selectedLabels
-        )
-    }
-
     // MARK: MilestonesViewControllerDelegate
 
-    func didDismiss(controller: MilestonesViewController, selected: Milestone?) {
+    func didDismiss(controller: MilestonesViewController) {
         guard let previous = issueResult else { return }
         client.setMilestone(
             previous: previous,
             owner: model.owner,
             repo: model.repo,
             number: model.number,
-            milestone: selected
+            milestone: controller.selected
         )
     }
 
     // MARK: PeopleViewControllerDelegate
 
-    func didDismiss(
-        controller: PeopleViewController,
-        type: PeopleViewController.PeopleType,
-        selections: [User]
-        ) {
+    func didDismiss(controller: PeopleViewController) {
         guard let previous = issueResult else { return }
-        var assignees = [IssueAssigneeViewModel]()
-        for user in selections {
-            guard let url = URL(string: user.avatar_url) else { continue }
-            assignees.append(IssueAssigneeViewModel(login: user.login, avatarURL: url))
-        }
 
-        let mutationType: GithubClient.AddPeopleType
-        switch type {
-        case .assignee: mutationType = .assignee
-        case .reviewer: mutationType = .reviewer
+        let mutationType: V3AddPeopleRequest.PeopleType
+        switch controller.type {
+        case .assignee: mutationType = .assignees
+        case .reviewer: mutationType = .reviewers
         }
 
         client.addPeople(
@@ -316,8 +313,22 @@ PeopleViewControllerDelegate {
             owner: model.owner,
             repo: model.repo,
             number: model.number,
-            people: assignees
+            people: controller.selected
         )
     }
+
+    // MARK: ContextMenuDelegate
+
+    func contextMenuWillDismiss(viewController: UIViewController, animated: Bool) {
+        if let milestones = viewController as? MilestonesViewController {
+            didDismiss(controller: milestones)
+        } else if let people = viewController as? PeopleViewController {
+            didDismiss(controller: people)
+        } else if let labels = viewController as? LabelsViewController {
+            didDismiss(selected: labels.selected)
+        }
+    }
+
+    func contextMenuDidDismiss(viewController: UIViewController, animated: Bool) {}
 
 }

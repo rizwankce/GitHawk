@@ -12,6 +12,7 @@ import AlamofireNetworkActivityIndicator
 import Fabric
 import Crashlytics
 import Firebase
+import GitHubSession
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -19,7 +20,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     private var showingLogin = false
     private let flexController = FlexController()
-    private let sessionManager = GithubSessionManager()
+    private let sessionManager = GitHubSessionManager()
+    private var badgeNotifications: BadgeNotifications?
+    private var watchAppSync: WatchAppUserSessionSync?
 
     private lazy var rootNavigationManager: RootNavigationManager = {
         return RootNavigationManager(
@@ -29,6 +32,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
+
+        sessionManager.addListener(listener: self)
+
+        let focusedSession = sessionManager.focusedUserSession
+        watchAppSync = WatchAppUserSessionSync(userSession: focusedSession)
+        watchAppSync?.start()
+
         // initialize a webview at the start so webview startup later on isn't so slow
         _ = UIWebView()
 
@@ -47,7 +57,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // setup root VCs
         window?.backgroundColor = Styles.Colors.background
-        rootNavigationManager.resetRootViewController(userSession: sessionManager.focusedUserSession)
+        rootNavigationManager.resetRootViewController(userSession: focusedSession)
 
         // use Alamofire status bar network activity helper
         NetworkActivityIndicatorManager.shared.isEnabled = true
@@ -58,9 +68,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // setup app icon badging
         BadgeNotifications.configure(application: application)
 
-        // setup 3d touch shortcut handling
-        ShortcutHandler.configure(application: application, sessionManager: sessionManager)
-
         // log device environment information
         LogEnvironmentInformation(application: application)
 
@@ -68,9 +75,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
-        completionHandler(ShortcutHandler.handle(shortcutItem: shortcutItem,
-                                                 sessionManager: sessionManager,
-                                                 navigationManager: rootNavigationManager))
+        guard let route = Route(shortcutItem: shortcutItem) else {
+            completionHandler(false)
+            return
+        }
+        completionHandler(ShortcutHandler.handle(
+            route: route,
+            sessionManager: sessionManager,
+            navigationManager: rootNavigationManager))
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
@@ -90,7 +102,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, performFetchWithCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        BadgeNotifications.fetch(application: application, handler: completionHandler)
+        badgeNotifications = BadgeNotifications()
+        badgeNotifications?.fetch(application: application, handler: completionHandler)
     }
 
+}
+
+extension AppDelegate: GitHubSessionListener {
+
+     // configure 3d touch shortcut handling
+    func didFocus(manager: GitHubSessionManager, userSession: GitHubUserSession, dismiss: Bool) {
+        ShortcutHandler.configure(application: UIApplication.shared, sessionManager: sessionManager)
+        watchAppSync?.sync(userSession: userSession)
+    }
+
+    func didReceiveRedirect(manager: GitHubSessionManager, code: String) {}
+    func didLogout(manager: GitHubSessionManager) {}
 }

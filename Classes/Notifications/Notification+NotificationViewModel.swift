@@ -7,81 +7,50 @@
 //
 
 import UIKit
-
-extension String {
-
-    var notificationIdentifier: NotificationViewModel.Identifier? {
-        let split = components(separatedBy: "/")
-        guard split.count > 2,
-            let identifier = split.last
-            else { return nil }
-        if split[split.count - 2] == "commits" {
-            return .hash(identifier)
-        } else {
-            return .number((identifier as NSString).integerValue)
-        }
-    }
-
-}
-
-func CreateViewModels(
-    containerWidth: CGFloat,
-    notifications: [NotificationResponse]) -> [NotificationViewModel] {
-    var viewModels = [NotificationViewModel]()
-
-    for notification in notifications {
-        guard let type = NotificationType(rawValue: notification.subject.type),
-            let date = notification.updated_at.githubDate,
-            let identifier = notification.subject.url.notificationIdentifier
-            else { continue }
-
-        let model = NotificationViewModel(
-            id: notification.id,
-            title: notification.subject.title,
-            type: type,
-            date: date,
-            read: !notification.unread,
-            owner: notification.repository.owner.login,
-            repo: notification.repository.name,
-            identifier: identifier,
-            containerWidth: containerWidth
-        )
-        viewModels.append(model)
-    }
-
-    return viewModels
-}
+import GitHubAPI
 
 func CreateNotificationViewModels(
-    containerWidth: CGFloat,
-    notifications: [NotificationResponse],
+    width: CGFloat,
+    contentSizeCategory: UIContentSizeCategory,
+    v3notifications: [V3Notification],
     completion: @escaping ([NotificationViewModel]) -> Void
     ) {
     DispatchQueue.global().async {
-        var viewModels = [NotificationViewModel]()
+        var models = [NotificationViewModel]()
 
-        for notification in notifications {
-            guard let type = NotificationType(rawValue: notification.subject.type),
-                let date = notification.updated_at.githubDate,
-                let identifier = notification.subject.url.notificationIdentifier
+        for notification in v3notifications {
+            guard let type = NotificationType(rawValue: notification.subject.type.rawValue),
+                let identifier = notification.subject.identifier
                 else { continue }
 
-            let model = NotificationViewModel(
-                id: notification.id,
-                title: notification.subject.title,
-                type: type,
-                date: date,
-                read: !notification.unread,
-                owner: notification.repository.owner.login,
+            let number: NotificationViewModel.Number
+            switch identifier {
+            case .hash(let h): number = .hash(h)
+            case .number(let n): number = .number(n)
+            case .release(let r): number = .release(r)
+            }
+
+            models.append(NotificationViewModel(
+                v3id: notification.id,
                 repo: notification.repository.name,
-                identifier: identifier,
-                containerWidth: containerWidth
-            )
-            viewModels.append(model)
+                owner: notification.repository.owner.login,
+                title: CreateNotification(title: notification.subject.title, width: width, contentSizeCategory: contentSizeCategory),
+                number: number,
+                state: .pending, // fetched later
+                date: notification.updatedAt,
+                ago: notification.updatedAt.agoString(.short),
+                read: !notification.unread,
+                comments: 0, // fetched later
+                watching: true, // assumed based on receiving
+                type: type,
+                // TODO get from GQL notification request
+                branch: "master",
+                issuesEnabled: true
+            ))
         }
 
         DispatchQueue.main.async {
-            completion(viewModels)
+            completion(models)
         }
     }
 }

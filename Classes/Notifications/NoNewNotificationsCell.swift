@@ -34,7 +34,7 @@ final class NoNewNotificationsCell: UICollectionViewCell {
         messageLabel.isAccessibilityElement = false
         messageLabel.textAlignment = .center
         messageLabel.backgroundColor = .clear
-        messageLabel.font = Styles.Fonts.body
+        messageLabel.font = Styles.Text.body.preferredFont
         messageLabel.textColor = Styles.Colors.Gray.light.color
         contentView.addSubview(messageLabel)
         messageLabel.snp.makeConstraints { make in
@@ -47,8 +47,8 @@ final class NoNewNotificationsCell: UICollectionViewCell {
         // CAAnimations will be removed from layers on background. restore when foregrounding.
         NotificationCenter.default
             .addObserver(self,
-                selector: #selector(NoNewNotificationsCell.resetAnimations),
-                name: NSNotification.Name.UIApplicationWillEnterForeground,
+                selector: #selector(resetAnimations),
+                name: .UIApplicationWillEnterForeground,
                 object: nil
         )
 

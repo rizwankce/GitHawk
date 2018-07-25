@@ -23,7 +23,8 @@ SearchBarSectionControllerDelegate {
     private let client: RepositoryClient
     private let type: RepositoryIssuesType
     private let searchKey: ListDiffable = "searchKey" as ListDiffable
-    private var searchQuery: String = ""
+    private let debouncer = Debouncer()
+    private var previousSearchString = "is:open "
 
     init(client: GithubClient, repo: RepositoryDetails, type: RepositoryIssuesType) {
         self.repo = repo
@@ -31,9 +32,10 @@ SearchBarSectionControllerDelegate {
         self.type = type
 
         super.init(
-            emptyErrorMessage: NSLocalizedString("Cannot load issues.", comment: ""),
-            dataSource: self
+            emptyErrorMessage: NSLocalizedString("Cannot load issues.", comment: "")
         )
+        
+        self.dataSource = self
 
         switch type {
         case .issues: title = NSLocalizedString("Issues", comment: "")
@@ -52,16 +54,17 @@ SearchBarSectionControllerDelegate {
 
         // set the frame in -viewDidLoad is required when working with TabMan
         feed.collectionView.frame = view.bounds
-        if #available(iOS 11.0, *) {
-            feed.collectionView.contentInsetAdjustmentBehavior = .never
-        }
+        feed.collectionView.contentInsetAdjustmentBehavior = .never
     }
 
     // MARK: Overrides
 
     override func fetch(page: NSString?) {
-        let width = view.bounds.width
-        let block = { [weak self] (result: Result<RepositoryClient.RepositoryPayload>) in
+        client.searchIssues(
+            query: fullQueryString,
+            nextPage: page as String?,
+            containerWidth: view.bounds.width
+        ) { [weak self] (result: Result<RepositoryClient.RepositoryPayload>) in
             switch result {
             case .error:
                 self?.error(animated: trueUnlessReduceMotionEnabled)
@@ -74,17 +77,14 @@ SearchBarSectionControllerDelegate {
                 self?.update(page: payload.nextPage as NSString?, animated: trueUnlessReduceMotionEnabled)
             }
         }
-
-        switch type {
-        case .issues: client.loadIssues(nextPage: page as String?, containerWidth: width, completion: block)
-        case .pullRequests: client.loadPullRequests(nextPage: page as String?, containerWidth: width, completion: block)
-        }
     }
 
     // MARK: SearchBarSectionControllerDelegate
 
     func didChangeSelection(sectionController: SearchBarSectionController, query: String) {
-        filter(query: query, animated: trueUnlessReduceMotionEnabled)
+        guard previousSearchString != query else { return }
+        previousSearchString = query
+        debouncer.action = { [weak self] in self?.fetch(page: nil) }
     }
 
     // MARK: BaseListViewControllerDataSource
@@ -99,7 +99,11 @@ SearchBarSectionControllerDelegate {
 
     func sectionController(model: Any, listAdapter: ListAdapter) -> ListSectionController {
         if let object = model as? ListDiffable, object === searchKey {
-            return SearchBarSectionController(placeholder: Constants.Strings.search, delegate: self)
+            return SearchBarSectionController(
+                placeholder: Constants.Strings.search,
+                delegate: self,
+                query: previousSearchString
+            )
         }
         return RepositorySummarySectionController(client: client.githubClient, repo: repo)
     }
@@ -112,9 +116,20 @@ SearchBarSectionControllerDelegate {
         }
         return RepositoryEmptyResultsSectionController(
             topInset: 0,
-            topLayoutGuide: topLayoutGuide,
-            bottomLayoutGuide: bottomLayoutGuide,
+            layoutInsets: view.safeAreaInsets,
             type: empty
         )
     }
+
+    // MARK: Private API
+
+    var fullQueryString: String {
+        let typeQuery: String
+        switch type {
+        case .issues: typeQuery = "is:issue"
+        case .pullRequests: typeQuery = "is:pr"
+        }
+        return "repo:\(repo.owner)/\(repo.name) \(typeQuery) \(previousSearchString)"
+    }
+
 }

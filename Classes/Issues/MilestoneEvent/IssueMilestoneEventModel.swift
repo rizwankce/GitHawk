@@ -8,6 +8,8 @@
 
 import Foundation
 import IGListKit
+import StyledTextKit
+import DateAgo
 
 final class IssueMilestoneEventModel: ListDiffable {
 
@@ -21,7 +23,7 @@ final class IssueMilestoneEventModel: ListDiffable {
     let milestone: String
     let date: Date
     let type: MilestoneType
-    let attributedText: NSAttributedStringSizing
+    let string: StyledTextRenderer
 
     init(
         id: String,
@@ -29,6 +31,7 @@ final class IssueMilestoneEventModel: ListDiffable {
         milestone: String,
         date: Date,
         type: MilestoneType,
+        contentSizeCategory: UIContentSizeCategory,
         width: CGFloat
         ) {
         self.id = id
@@ -37,45 +40,34 @@ final class IssueMilestoneEventModel: ListDiffable {
         self.date = date
         self.type = type
 
-        let attributedText = NSMutableAttributedString()
-        attributedText.append(NSAttributedString(
-            string: actor,
-            attributes: [
-                .font: Styles.Fonts.secondaryBold,
-                .foregroundColor: Styles.Colors.Gray.dark.color,
-                MarkdownAttribute.username: actor
-            ]
-        ))
         let action: String
         switch type {
         case .milestoned: action = NSLocalizedString(" added to milestone ", comment: "")
         case .demilestoned: action = NSLocalizedString(" removed from milestone ", comment: "")
         }
-        attributedText.append(NSAttributedString(
-            string: action,
-            attributes: [
-                .foregroundColor: Styles.Colors.Gray.medium.color,
-                .font: Styles.Fonts.secondary
-            ]
+
+        let builder = StyledTextBuilder(styledText: StyledText(
+            style: Styles.Text.secondary.with(foreground: Styles.Colors.Gray.medium.color)
         ))
-        attributedText.append(NSAttributedString(
-            string: milestone,
-            attributes: [
-                .foregroundColor: Styles.Colors.Gray.dark.color,
-                .font: Styles.Fonts.secondaryBold
-            ]
-        ))
-        attributedText.append(NSAttributedString(
-            string: " \(date.agoString)",
-            attributes: [
-                .font: Styles.Fonts.secondary,
-                .foregroundColor: Styles.Colors.Gray.medium.color,
-                MarkdownAttribute.details: DateDetailsFormatter().string(from: date)
-            ]
-        ))
-        self.attributedText = NSAttributedStringSizing(
-            containerWidth: width,
-            attributedText: attributedText,
+            .save()
+            .add(styledText: StyledText(text: actor, style: Styles.Text.secondaryBold.with(attributes: [
+                MarkdownAttribute.username: actor,
+                .foregroundColor: Styles.Colors.Gray.dark.color
+                ])
+            ))
+            .restore()
+            .add(text: action)
+            .save()
+            .add(styledText: StyledText(
+                text: milestone,
+                style: Styles.Text.secondaryBold.with(foreground: Styles.Colors.Gray.dark.color)
+            ))
+            .restore()
+            .add(text: " \(date.agoString(.long))", attributes: [MarkdownAttribute.details: DateDetailsFormatter().string(from: date)])
+
+        self.string = StyledTextRenderer(
+            string: builder.build(),
+            contentSizeCategory: contentSizeCategory,
             inset: UIEdgeInsets(
                 top: Styles.Sizes.inlineSpacing,
                 left: Styles.Sizes.eventGutter,
@@ -83,7 +75,7 @@ final class IssueMilestoneEventModel: ListDiffable {
                 right: Styles.Sizes.eventGutter
             ),
             backgroundColor: Styles.Colors.background
-        )
+        ).warm(width: width)
     }
 
     // MARK: ListDiffable
@@ -97,3 +89,4 @@ final class IssueMilestoneEventModel: ListDiffable {
     }
 
 }
+

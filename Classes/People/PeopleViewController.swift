@@ -2,137 +2,151 @@
 //  PeopleViewController.swift
 //  Freetime
 //
-//  Created by Ryan Nystrom on 11/19/17.
-//  Copyright © 2017 Ryan Nystrom. All rights reserved.
+//  Created by Ryan Nystrom on 6/2/18.
+//  Copyright © 2018 Ryan Nystrom. All rights reserved.
 //
 
-import UIKit
+import Foundation
+import IGListKit
+import GitHubAPI
+import Squawk
 
-protocol PeopleViewControllerDelegate: class {
-    func didDismiss(
-        controller: PeopleViewController,
-        type: PeopleViewController.PeopleType,
-        selections: [User]
-    )
-}
-
-final class PeopleViewController: UITableViewController {
+final class PeopleViewController: BaseListViewController2<String>,
+BaseListViewController2DataSource,
+PeopleSectionControllerDelegate {
 
     enum PeopleType {
         case assignee
         case reviewer
     }
 
+    public let type: PeopleType
+
+    private let selections: Set<String>
     private let selectionLimit = 10
-    private weak var delegate: PeopleViewControllerDelegate?
-    private var owner: String!
-    private var repo: String!
-    private var client: GithubClient!
-    private var users = [User]()
-    private let feedRefresh = FeedRefresh()
-    private var type: PeopleType!
-    private var selections = Set<String>()
+    private let exclusions: Set<String>
+    private var users = [IssueAssigneeViewModel]()
+    private let client: GithubClient
+    private var owner: String
+    private var repo: String
+
+    init(
+        selections: [String],
+        exclusions: [String],
+        type: PeopleType,
+        client: GithubClient,
+        owner: String,
+        repo: String
+        ) {
+        self.selections = Set<String>(selections)
+        self.exclusions = Set<String>(exclusions)
+        self.type = type
+        self.client = client
+        self.owner = owner
+        self.repo = repo
+
+        super.init(emptyErrorMessage: NSLocalizedString("Cannot load users.", comment: ""))
+
+        self.dataSource = self
+
+        switch type {
+        case .assignee: title = NSLocalizedString("Assignees", comment: "")
+        case .reviewer: title = NSLocalizedString("Reviewers", comment: "")
+        }
+
+        feed.collectionView.backgroundColor = Styles.Colors.menuBackgroundColor.color
+        preferredContentSize = Styles.Sizes.contextMenuSize
+        updateSelectionCount()
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
+        addMenuDoneButton()
+    }
 
-        tableView.refreshControl = feedRefresh.refreshControl
-        feedRefresh.refreshControl.addTarget(self, action: #selector(onRefresh), for: .valueChanged)
+    // MARK: Public API
 
-        feedRefresh.beginRefreshing()
-        fetch()
-        updateSelectionCount()
+    var selected: [IssueAssigneeViewModel] {
+        return users.filter {
+            if let sectionController: PeopleSectionController = feed.swiftAdapter.sectionController(for: $0) {
+                return sectionController.selected
+            }
+            return false
+        }
     }
 
     // MARK: Private API
 
     func updateSelectionCount() {
         let label = UILabel()
-        label.font = Styles.Fonts.body
+        label.font = Styles.Text.body.preferredFont
         label.backgroundColor = .clear
         label.textColor = Styles.Colors.Gray.light.color
-        label.text = "\(selections.count)/\(selectionLimit)"
+        label.text = "\(selected.count)/\(selectionLimit)"
         label.sizeToFit()
         navigationItem.leftBarButtonItem = UIBarButtonItem(customView: label)
     }
 
-    @objc func onRefresh() {
-        fetch()
-    }
+    // MARK: Overrides
 
-    func fetch() {
-        client.fetchAssignees(owner: owner, repo: repo) { [weak self] result in
-            self?.feedRefresh.endRefreshing()
+    override func fetch(page: String?) {
+
+        client.client.send(
+            V3AssigneesRequest(
+                owner: owner,
+                repo: repo,
+                page: (page as NSString?)?.integerValue ?? 1
+            )
+        ) { [weak self] result in
             switch result {
-            case .success(let users):
-                self?.users = users
-                self?.tableView.reloadData()
-            case .error:
-                ToastManager.showGenericError()
+            case .success(let response):
+                let sortedUsers = response.data.sorted {
+                    $0.login.caseInsensitiveCompare($1.login) == .orderedAscending
+                }
+                let users = sortedUsers.map { IssueAssigneeViewModel(login: $0.login, avatarURL: $0.avatarUrl) }
+                if page != nil {
+                    self?.users += users
+                } else {
+                    self?.users = users
+                }
+                self?.update(animated: true)
+
+                let nextPage: String?
+                if let next = response.next {
+                    nextPage = "\(next)"
+                } else {
+                    nextPage = nil
+                }
+                self?.update(page: nextPage, animated: true)
+            case .failure:
+                Squawk.showGenericError()
             }
         }
     }
 
-    @IBAction func onDone(_ sender: Any) {
-        let selections = users.filter { self.selections.contains($0.login) }
-        delegate?.didDismiss(controller: self, type: type, selections: selections)
-        dismiss(animated: trueUnlessReduceMotionEnabled)
-    }
+    // MARK: BaseListViewController2DataSource
 
-    // MARK: Public API
-
-    func configure(
-        selections: [String],
-        type: PeopleType,
-        client: GithubClient,
-        delegate: PeopleViewControllerDelegate,
-        owner: String,
-        repo: String
-        ) {
-        self.selections = Set<String>(selections)
-        self.type = type
-        self.client = client
-        self.delegate = delegate
-        self.owner = owner
-        self.repo = repo
-
-        switch type {
-        case .assignee: title = NSLocalizedString("Assignees", comment: "")
-        case .reviewer: title = NSLocalizedString("Reviewers", comment: "")
-        }
-    }
-
-    // MARK: UITableViewDataSource
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return users.count
-    }
-
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-        let user = users[indexPath.row]
-        if let cell = cell as? PeopleCell, let avatarURL = URL(string: user.avatar_url) {
-            let login = user.login
-            cell.configure(avatarURL: avatarURL, username: login, showCheckmark: selections.contains(login))
-        }
-        return cell
-    }
-
-    // MARK: UITableViewDelegate
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: trueUnlessReduceMotionEnabled)
-
-        let login = users[indexPath.row].login
-        if selections.contains(login) {
-            selections.remove(login)
-        } else {
-            if selections.count < selectionLimit {
-                selections.insert(login)
+    func models(adapter: ListSwiftAdapter) -> [ListSwiftPair] {
+        return users
+            .filter { [exclusions] user in !exclusions.contains(user.login) }
+            .map { [selections] user in
+                return ListSwiftPair.pair(user) { [weak self] in
+                    let controller = PeopleSectionController(selected: selections.contains(user.login))
+                    controller.delegate = self
+                    return controller
+                }
             }
-        }
+    }
+
+    // MARK: PeopleSectionControllerDelegate
+
+    func didSelect(controller: PeopleSectionController) {
         updateSelectionCount()
-        tableView.reloadData()
     }
 
 }

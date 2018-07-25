@@ -8,23 +8,23 @@
 
 import UIKit
 import IGListKit
+import StyledTextKit
 
 final class IssueCommentTextCell: IssueCommentBaseCell, ListBindable {
 
     static let inset = UIEdgeInsets(
-        top: 0,
+        top: 2,
         left: Styles.Sizes.commentGutter,
         bottom: Styles.Sizes.rowSpacing,
         right: Styles.Sizes.commentGutter
     )
 
-    let textView = AttributedStringView()
+    let textView = MarkdownStyledTextView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        
         isAccessibilityElement = true
-
+        textView.gesturableAttributes = MarkdownAttribute.all
         contentView.addSubview(textView)
     }
 
@@ -34,23 +34,21 @@ final class IssueCommentTextCell: IssueCommentBaseCell, ListBindable {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        textView.reposition(width: contentView.bounds.width)
+        textView.reposition(for: contentView.bounds.width)
     }
 
     // MARK: Accessibility
 
     override var accessibilityLabel: String? {
-        get {
-            return AccessibilityHelper.generatedLabel(forCell: self)
-        }
+        get { return AccessibilityHelper.generatedLabel(forCell: self) }
         set { }
     }
 
     // MARK: ListBindable
 
     func bindViewModel(_ viewModel: Any) {
-        guard let viewModel = viewModel as? NSAttributedStringSizing else { return }
-        textView.configureAndSizeToFit(text: viewModel, width: contentView.bounds.width)
+        guard let viewModel = viewModel as? StyledTextRenderer else { return }
+        textView.configure(with: viewModel, width: contentView.bounds.width)
     }
 
 }

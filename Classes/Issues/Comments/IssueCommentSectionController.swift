@@ -9,15 +9,27 @@
 import UIKit
 import IGListKit
 import TUSafariActivity
+import Squawk
+import GitHubAPI
 
-final class IssueCommentSectionController: ListBindingSectionController<IssueCommentModel>,
+protocol IssueCommentSectionControllerDelegate: class {
+    func didSelectReply(
+        to sectionController: IssueCommentSectionController,
+        commentModel: IssueCommentModel
+    )
+}
+
+final class IssueCommentSectionController:
+    ListBindingSectionController<IssueCommentModel>,
     ListBindingSectionControllerDataSource,
     ListBindingSectionControllerSelectionDelegate,
     IssueCommentDetailCellDelegate,
-IssueCommentReactionCellDelegate,
-AttributedStringViewExtrasDelegate,
-EditCommentViewControllerDelegate,
-IssueCommentDoubleTapDelegate {
+    IssueCommentReactionCellDelegate,
+    EditCommentViewControllerDelegate,
+    MarkdownStyledTextViewDelegate,
+    IssueCommentDoubleTapDelegate {
+
+    private weak var issueCommentDelegate: IssueCommentSectionControllerDelegate?
 
     private var collapsed = true
     private let generator = UIImpactFeedbackGenerator()
@@ -25,6 +37,7 @@ IssueCommentDoubleTapDelegate {
     private let model: IssueDetailsModel
     private var hasBeenDeleted = false
     private let autocomplete: IssueCommentAutocomplete
+    private var menuVisible = false
 
     private lazy var webviewCache: WebviewCellHeightCache = {
         return WebviewCellHeightCache(sectionController: self)
@@ -50,13 +63,18 @@ IssueCommentDoubleTapDelegate {
     private let headModel = "headModel" as ListDiffable
     private let tailModel = "tailModel" as ListDiffable
 
-    init(model: IssueDetailsModel, client: GithubClient, autocomplete: IssueCommentAutocomplete) {
+    init(model: IssueDetailsModel,
+         client: GithubClient,
+         autocomplete: IssueCommentAutocomplete,
+         issueCommentDelegate: IssueCommentSectionControllerDelegate? = nil
+        ) {
         self.model = model
         self.client = client
         self.autocomplete = autocomplete
         super.init()
         self.dataSource = self
         self.selectionDelegate = self
+        self.issueCommentDelegate = issueCommentDelegate
     }
 
     override func didUpdate(to object: Any) {
@@ -77,7 +95,7 @@ IssueCommentDoubleTapDelegate {
             .share([url], activities: [TUSafariActivity()]) { $0.popoverPresentationController?.sourceView = sender }
     }
 
-    func deleteAction() -> UIAlertAction? {
+    var deleteAction: UIAlertAction? {
         guard object?.viewerCanDelete == true else { return nil }
 
         return AlertAction.delete { [weak self] _ in
@@ -96,7 +114,7 @@ IssueCommentDoubleTapDelegate {
         }
     }
 
-    func editAction() -> UIAlertAction? {
+    var editAction: UIAlertAction? {
         guard object?.viewerCanUpdate == true else { return nil }
         return UIAlertAction(title: NSLocalizedString("Edit", comment: ""), style: .default, handler: { [weak self] _ in
             guard let strongSelf = self,
@@ -120,6 +138,40 @@ IssueCommentDoubleTapDelegate {
         })
     }
 
+    var replyAction: UIAlertAction? {
+        return UIAlertAction(
+            title: NSLocalizedString("Reply", comment: ""),
+            style: .default,
+            handler: { [weak self] _ in
+                guard let strongSelf = self,
+                let commentModel = strongSelf.object
+                else { return }
+
+                strongSelf.issueCommentDelegate?.didSelectReply(
+                    to: strongSelf,
+                    commentModel: commentModel
+                )
+            }
+        )
+    }
+
+    var viewMarkdownAction: UIAlertAction? {
+        return UIAlertAction(
+            title: NSLocalizedString("View Markdown", comment: ""),
+            style: .default,
+            handler: { [weak self] _ in
+                guard let markdown = self?.object?.rawMarkdown else { return }
+                let nav = UINavigationController(
+                    rootViewController: ViewMarkdownViewController(markdown: markdown)
+                )
+                self?.viewController?.present(
+                    nav,
+                    animated: trueUnlessReduceMotionEnabled
+                )
+            }
+        )
+    }
+
     private func clearCollapseCells() {
         // clear any collapse state before updating so we don't have a dangling overlay
         for cell in collectionContext?.visibleCells(for: self) ?? [] {
@@ -131,9 +183,10 @@ IssueCommentDoubleTapDelegate {
 
     @discardableResult
     private func uncollapse() -> Bool {
-        guard collapsed else { return false }
+        guard collapsed, !menuVisible else { return false }
         collapsed = false
         clearCollapseCells()
+        collectionContext?.invalidateLayout(for: self, completion: nil)
         update(animated: trueUnlessReduceMotionEnabled)
         return true
     }
@@ -164,12 +217,31 @@ IssueCommentDoubleTapDelegate {
 
     func edit(markdown: String) {
         guard let width = collectionContext?.insetContainerSize.width else { return }
-        let options = commentModelOptions(owner: model.owner, repo: model.repo)
-        let bodyModels = CreateCommentModels(markdown: markdown, width: width, options: options, viewerCanUpdate: true)
+        let bodyModels = MarkdownModels(
+            markdown,
+            owner: model.owner,
+            repo: model.repo,
+            width: width,
+            viewerCanUpdate: true,
+            contentSizeCategory: UIApplication.shared.preferredContentSizeCategory
+        )
         bodyEdits = (markdown, bodyModels)
         collapsed = false
         clearCollapseCells()
         update(animated: trueUnlessReduceMotionEnabled)
+    }
+
+    func didTap(attribute: DetectedMarkdownAttribute) {
+        if viewController?.handle(attribute: attribute) == true {
+            return
+        }
+        switch attribute {
+        case .issue(let issue):
+            viewController?.show(IssuesViewController(client: client, model: issue), sender: nil)
+        case .checkbox(let checkbox):
+            didTapCheckbox(checkbox: checkbox)
+        default: break
+        }
     }
 
     /// Deletes the comment and optimistically removes it from the feed
@@ -180,15 +252,46 @@ IssueCommentDoubleTapDelegate {
         hasBeenDeleted = true
         update(animated: trueUnlessReduceMotionEnabled)
 
-        // Actually delete the comment now
-        client.deleteComment(owner: model.owner, repo: model.repo, commentID: number) { [weak self] result in
+        client.client.send(V3DeleteCommentRequest(
+            owner: model.owner,
+            repo: model.repo,
+            commentID: "\(number)")
+        ) { [weak self] result in
             switch result {
-            case .error:
+            case .failure:
                 self?.hasBeenDeleted = false
                 self?.update(animated: trueUnlessReduceMotionEnabled)
 
-                ToastManager.showGenericError()
+                Squawk.showGenericError()
             case .success: break // Don't need to handle success since updated optimistically
+            }
+        }
+    }
+
+    func didTapCheckbox(checkbox: MarkdownCheckboxModel) {
+        guard object?.viewerCanUpdate == true,
+            let commentID = object?.number,
+            let isRoot = object?.isRoot,
+            let originalMarkdown = currentMarkdown
+            else { return }
+
+        let invertedToken = checkbox.checked ? "[ ]" : "[x]"
+        let edited = (originalMarkdown as NSString).replacingCharacters(in: checkbox.originalMarkdownRange, with: invertedToken)
+        edit(markdown: edited)
+
+        client.client.send(V3EditCommentRequest(
+            owner: model.owner,
+            repo: model.repo,
+            issueNumber: model.number,
+            commentID: commentID,
+            body: edited,
+            isRoot: isRoot)
+        ) { [weak self] result in
+            switch result {
+            case .success: break
+            case .failure:
+                self?.edit(markdown: originalMarkdown)
+                Squawk.showGenericError()
             }
         }
     }
@@ -310,8 +413,7 @@ IssueCommentDoubleTapDelegate {
             htmlDelegate: webviewCache,
             htmlNavigationDelegate: viewController,
             htmlImageDelegate: photoHandler,
-            attributedDelegate: viewController,
-            extrasAttributedDelegate: self,
+            markdownDelegate: self,
             imageHeightDelegate: imageCache
         )
 
@@ -352,7 +454,7 @@ IssueCommentDoubleTapDelegate {
 
     func didTapMore(cell: IssueCommentDetailCell, sender: UIView) {
         guard let login = object?.details.login else {
-            ToastManager.showGenericError()
+            Squawk.showGenericError()
             return
         }
 
@@ -365,8 +467,10 @@ IssueCommentDoubleTapDelegate {
         alert.popoverPresentationController?.sourceView = sender
         alert.addActions([
             shareAction(sender: sender),
-            editAction(),
-            deleteAction(),
+            viewMarkdownAction,
+            editAction,
+            replyAction,
+            deleteAction,
             AlertAction.cancel()
         ])
         viewController?.present(alert, animated: trueUnlessReduceMotionEnabled)
@@ -374,7 +478,7 @@ IssueCommentDoubleTapDelegate {
 
     func didTapProfile(cell: IssueCommentDetailCell) {
         guard let login = object?.details.login else {
-            ToastManager.showGenericError()
+            Squawk.showGenericError()
             return
         }
 
@@ -382,6 +486,14 @@ IssueCommentDoubleTapDelegate {
     }
 
     // MARK: IssueCommentReactionCellDelegate
+
+    func willShowMenu(cell: IssueCommentReactionCell) {
+        menuVisible = true
+    }
+
+    func didHideMenu(cell: IssueCommentReactionCell) {
+        menuVisible = false
+    }
 
     func didAdd(cell: IssueCommentReactionCell, reaction: ReactionContent) {
         // don't add a reaction if already reacted
@@ -401,39 +513,10 @@ IssueCommentDoubleTapDelegate {
         react(cell: cell, content: reaction, isAdd: false)
     }
 
-    // MARK: AttributedStringViewExtrasDelegate
+    // MARK: MarkdownStyledTextViewDelegate
 
-    func didTapIssue(view: AttributedStringView, issue: IssueDetailsModel) {
-        let controller = IssuesViewController(client: client, model: issue)
-        viewController?.show(controller, sender: nil)
-    }
-
-    func didTapCheckbox(view: AttributedStringView, checkbox: MarkdownCheckboxModel) {
-        guard object?.viewerCanUpdate == true,
-            let commentID = object?.number,
-            let isRoot = object?.isRoot,
-            let originalMarkdown = currentMarkdown
-            else { return }
-
-        let invertedToken = checkbox.checked ? "[ ]" : "[x]"
-        let edited = (originalMarkdown as NSString).replacingCharacters(in: checkbox.originalMarkdownRange, with: invertedToken)
-        edit(markdown: edited)
-
-        client.editComment(
-            owner: model.owner,
-            repo: model.repo,
-            issueNumber: model.number,
-            commentID: commentID,
-            body: edited,
-            isRoot: isRoot
-        ) { [weak self] (result) in
-            switch result {
-            case .success: break;
-            case .error:
-                self?.edit(markdown: originalMarkdown)
-                ToastManager.showGenericError()
-            }
-        }
+    func didTap(cell: MarkdownStyledTextView, attribute: DetectedMarkdownAttribute) {
+        didTap(attribute: attribute)
     }
 
     // MARK: EditCommentViewControllerDelegate

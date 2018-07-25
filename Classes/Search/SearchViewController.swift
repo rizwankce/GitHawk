@@ -126,7 +126,6 @@ SearchResultSectionControllerDelegate {
     func search(term: String) {
         let query: SearchQuery = .search(term)
         guard canSearch(query: query) else { return }
-        recentStore.add(query)
 
         let request = client.search(query: term, containerWidth: view.bounds.width) { [weak self] resultType in
             guard let state = self?.state, case .loading = state else { return }
@@ -142,7 +141,7 @@ SearchResultSectionControllerDelegate {
     func objects(for listAdapter: ListAdapter) -> [ListDiffable] {
         switch state {
         case .idle:
-            var recents: [ListDiffable] = recentStore.values.flatMap { SearchRecentViewModel(query: $0) }
+            var recents: [ListDiffable] = recentStore.values.compactMap { SearchRecentViewModel(query: $0) }
             if recents.count > 0 {
                 recents.insert(recentHeaderKey, at: 0)
             }
@@ -159,10 +158,10 @@ SearchResultSectionControllerDelegate {
 
         let controlHeight = Styles.Sizes.tableCellHeight
         if object === noResultsKey {
+            
             return SearchNoResultsSectionController(
                 topInset: controlHeight,
-                topLayoutGuide: topLayoutGuide,
-                bottomLayoutGuide: bottomLayoutGuide
+                layoutInsets: view.safeAreaInsets
             )
         } else if object === recentHeaderKey {
             return SearchRecentHeaderSectionController(delegate: self)

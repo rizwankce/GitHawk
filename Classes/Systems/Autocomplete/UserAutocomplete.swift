@@ -42,6 +42,7 @@ final class UserAutocomplete: AutocompleteType {
         if let cached = cachedResults[word] {
             self.results = cached
             completion(cached.count > 0)
+            return
         }
 
         var results = [AutocompleteUser]()
@@ -61,6 +62,13 @@ final class UserAutocomplete: AutocompleteType {
 
     func accept(index: Int) -> String? {
         return prefix + results[index].login
+    }
+
+    var highlightAttributes: [NSAttributedStringKey : Any]? {
+        return [
+            .foregroundColor: Styles.Colors.Blue.medium.color,
+            .backgroundColor: Styles.Colors.Blue.medium.color.withAlphaComponent(0.1),
+        ]
     }
 
 }

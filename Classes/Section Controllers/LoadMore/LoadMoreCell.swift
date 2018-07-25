@@ -8,6 +8,7 @@
 
 import UIKit
 import SnapKit
+import IGListKit
 
 final class LoadMoreCell: UICollectionViewCell {
 
@@ -18,7 +19,7 @@ final class LoadMoreCell: UICollectionViewCell {
 
         accessibilityTraits |= UIAccessibilityTraitButton
         isAccessibilityElement = true
-        label.font = Styles.Fonts.button
+        label.font = Styles.Text.button.preferredFont
         label.textColor = Styles.Colors.Gray.light.color
         contentView.addSubview(label)
         label.snp.makeConstraints { make in

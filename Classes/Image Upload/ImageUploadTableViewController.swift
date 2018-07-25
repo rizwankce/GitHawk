@@ -7,8 +7,9 @@
 //
 
 import UIKit
-import SlackTextViewController
 import NYTPhotoViewer
+import MessageViewController
+import Squawk
 
 protocol ImageUploadDelegate: class {
     func imageUploaded(link: String, altText: String)
@@ -18,15 +19,10 @@ class ImageUploadTableViewController: UITableViewController {
 
     @IBOutlet private var previewImageView: UIImageView! {
         didSet {
-            guard #available(iOS 11, *) else { return }
             previewImageView.accessibilityIgnoresInvertColors = true
         }
     }
     @IBOutlet private var titleTextField: UITextField!
-    @IBOutlet private var bodyTextField: SLKTextView!
-    
-    private var bodyPlaceholder: String?
-    private var bodyTextColor: UIColor?
 
     private var image: UIImage! // Set through the create function
     private var username: String?
@@ -37,12 +33,6 @@ class ImageUploadTableViewController: UITableViewController {
 
     private var titleText: String? {
         guard let raw = titleTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
-        if raw.isEmpty { return nil }
-        return raw
-    }
-
-    private var descriptionText: String? {
-        let raw = bodyTextField.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty { return nil }
         return raw
     }
@@ -60,15 +50,13 @@ class ImageUploadTableViewController: UITableViewController {
 
         return viewController
     }
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
 
         // Set the preview image
         previewImageView.image = image
 
-        // Set title field delegate so return moves to next field
-        titleTextField.delegate = self
 
         // Set the right button item to spinning until we have compression info
         setRightBarItemSpinning()
@@ -78,28 +66,22 @@ class ImageUploadTableViewController: UITableViewController {
 
         // Setup view colors and styles
         let placeholderText = NSLocalizedString("Optional", comment: "")
-        bodyTextField.placeholder = placeholderText
-        bodyTextField.placeholderFont = Styles.Fonts.body
-        bodyTextField.placeholderColor = Styles.Colors.Gray.light.color
-        bodyTextField.font = Styles.Fonts.body
-        bodyTextField.textColor = Styles.Colors.Gray.dark.color
-        bodyTextField.textContainerInset = .zero
-        bodyTextField.textContainer.lineFragmentPadding = 0
         titleTextField.textColor = Styles.Colors.Gray.dark.color
-        titleTextField.font = Styles.Fonts.body
+        titleTextField.font = Styles.Text.body.preferredFont
         titleTextField.attributedPlaceholder = NSAttributedString(
             string: placeholderText,
             attributes: [
                 .foregroundColor: Styles.Colors.Gray.light.color,
-                .font: Styles.Fonts.body
+                .font: Styles.Text.body.preferredFont
             ]
         )
+        titleTextField.delegate = self
         
         // Compress and encode the image in the background to speed up the upload process
         image.compressAndEncode { [weak self] result in
             switch result {
             case .error:
-                ToastManager.showError(message: NSLocalizedString("Failed to encode image", comment: ""))
+                Squawk.showError(message: NSLocalizedString("Failed to encode image", comment: ""))
                 self?.navigationItem.rightBarButtonItem = nil
             case .success(let base64):
                 self?.compressionData = base64
@@ -144,7 +126,7 @@ class ImageUploadTableViewController: UITableViewController {
             self.dismiss(animated: trueUnlessReduceMotionEnabled)
         }
 
-        if titleText == nil && descriptionText == nil {
+        if titleText == nil {
             dismissBlock()
             return
         }
@@ -169,7 +151,7 @@ class ImageUploadTableViewController: UITableViewController {
 
         // Should never caught in here as the button will be disabled in this situation
         guard let compressionData = compressionData else {
-            ToastManager.showGenericError()
+            Squawk.showGenericError()
             return
         }
 
@@ -180,20 +162,20 @@ class ImageUploadTableViewController: UITableViewController {
                 
                 switch error {
                 case .endpointError(let response):
-                    ToastManager.showError(message: response)
+                    Squawk.showError(message: response)
                     
                 case .rateLimitExceeded:
-                    ToastManager.showError(message: NSLocalizedString("Rate Limit reached, cannot upload!", comment: ""))
+                    Squawk.showError(message: NSLocalizedString("Rate Limit reached, cannot upload!", comment: ""))
                     
                 default:
-                    ToastManager.showGenericError()
+                    Squawk.showGenericError()
                 }
                 
                 self?.navigationItem.rightBarButtonItem = nil
                 return
             }
 
-            var name = "GitHawk Upload"
+            var name = self?.titleText ?? "GitHawk Upload"
 
             if let username = self?.username {
                 name += " by \(username)"
@@ -204,11 +186,11 @@ class ImageUploadTableViewController: UITableViewController {
                 base64Image: compressionData,
                 name: name,
                 title: self?.titleText ?? "",
-                description: self?.descriptionText ?? "") { [weak self] result in
+                description: "") { [weak self] result in
 
                 switch result {
                 case .error:
-                    ToastManager.showGenericError()
+                    Squawk.showGenericError()
                     self?.setRightBarItemIdle()
 
                 case .success(let link):
@@ -227,11 +209,10 @@ class ImageUploadTableViewController: UITableViewController {
 }
 
 // MARK: UITextFieldDelegate
-
 extension ImageUploadTableViewController: UITextFieldDelegate {
     /// Called when the user taps return on the title field, moves their cursor to the body
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        bodyTextField.becomeFirstResponder()
-        return false
+        view.endEditing(true)
+        return true
     }
 }

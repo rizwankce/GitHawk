@@ -42,11 +42,11 @@ extension UINavigationItem {
         }
 
         let titleAttributes: [NSAttributedStringKey: Any] = [
-            .font: Styles.Fonts.bodyBold,
+            .font: Styles.Text.bodyBold.preferredFont,
             .foregroundColor: Styles.Colors.Gray.dark.color
         ]
         let subtitleAttributes: [NSAttributedStringKey: Any] = [
-            .font: Styles.Fonts.secondaryBold,
+            .font: Styles.Text.secondaryBold.preferredFont,
             .foregroundColor: Styles.Colors.Gray.light.color
         ]
 
@@ -59,6 +59,22 @@ extension UINavigationItem {
         label.numberOfLines = 0
         label.textAlignment = .center
         label.attributedText = attributedTitle
+        label.lineBreakMode = .byTruncatingHead
+        label.adjustsFontSizeToFitWidth = true
+        label.sizeToFit()
+
+        titleView = label
+        if let accessibilityLabel = accessibilityLabel { // prevent from setting to nil if we don't provide anything, use default instead
+            titleView?.accessibilityLabel = accessibilityLabel
+        }
+    }
+
+    func configure(title: NSAttributedString, accessibilityLabel: String? = nil) {
+        let label = UILabel()
+        label.backgroundColor = .clear
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.attributedText = title
         label.lineBreakMode = .byTruncatingHead
         label.adjustsFontSizeToFitWidth = true
         label.sizeToFit()

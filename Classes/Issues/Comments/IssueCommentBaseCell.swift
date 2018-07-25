@@ -14,7 +14,7 @@ protocol IssueCommentDoubleTapDelegate: class {
 
 class IssueCommentBaseCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
-    static let collapseCellMinHeight: CGFloat = 20
+    static let collapseCellMinHeight: CGFloat = 30
 
     enum BorderType {
         case head
@@ -65,7 +65,7 @@ class IssueCommentBaseCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         collapseButton.backgroundColor = Styles.Colors.Blue.medium.color
         collapseButton.accessibilityTraits = UIAccessibilityTraitNone
         collapseButton.tintColor = .white
-        collapseButton.titleLabel?.font = Styles.Fonts.smallTitle
+        collapseButton.titleLabel?.font = Styles.Text.smallTitle.preferredFont
         collapseButton.clipsToBounds = true
         collapseButton.isHidden = true
         collapseButton.contentEdgeInsets = UIEdgeInsets(top: -2, left: 8, bottom: -2, right: 8)
@@ -158,7 +158,7 @@ class IssueCommentBaseCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
             collapseButton.center = CGPoint(
                 x: collapseFrame.width / 2,
-                y: collapseFrame.minY + collapseButton.bounds.height / 2 - 3
+                y: collapseFrame.maxY - collapseButton.bounds.height / 2
             )
         }
     }
@@ -169,6 +169,12 @@ class IssueCommentBaseCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             return UIColor(cgColor: color)
         }
         set { backgroundLayer.fillColor = newValue?.cgColor}
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        collapseLayer.isHidden = true
+        collapseButton.isHidden = true
     }
 
     // MARK: Private API

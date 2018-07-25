@@ -2,106 +2,104 @@
 //  MilestonesViewController.swift
 //  Freetime
 //
-//  Created by Ryan Nystrom on 11/15/17.
-//  Copyright © 2017 Ryan Nystrom. All rights reserved.
+//  Created by Ryan Nystrom on 6/3/18.
+//  Copyright © 2018 Ryan Nystrom. All rights reserved.
 //
 
 import UIKit
+import Squawk
+import IGListKit
 
-protocol MilestonesViewControllerDelegate: class {
-    func didDismiss(controller: MilestonesViewController, selected: Milestone?)
-}
+final class MilestonesViewController: BaseListViewController2<String>,
+BaseListViewController2DataSource,
+MilestoneSectionControllerDelegate {
 
-final class MilestonesViewController: UITableViewController {
+    public private(set) var selected: Milestone?
 
-    private weak var delegate: MilestonesViewControllerDelegate?
-    private var selected: Milestone?
     private var owner: String!
     private var repo: String!
-    private var milestones = [Milestone]()
     private var client: GithubClient!
     private let feedRefresh = FeedRefresh()
+    private var milestones = [Milestone]()
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
-        tableView.refreshControl = feedRefresh.refreshControl
-        feedRefresh.refreshControl.addTarget(self, action: #selector(LabelsViewController.onRefresh), for: .valueChanged)
-
-        feedRefresh.beginRefreshing()
-        fetch()
-    }
-
-    // MARK: Public API
-
-    func configure(
+    init(
         client: GithubClient,
         owner: String,
         repo: String,
-        selected: Milestone?,
-        delegate: MilestonesViewControllerDelegate
+        selected: Milestone?
         ) {
         self.client = client
         self.owner = owner
         self.repo = repo
         self.selected = selected
-        self.delegate = delegate
+        super.init(emptyErrorMessage: NSLocalizedString("No milestones found.", comment: ""))
+        title = Constants.Strings.milestone
+        preferredContentSize = Styles.Sizes.contextMenuSize
+        feed.collectionView.backgroundColor = Styles.Colors.menuBackgroundColor.color
+        dataSource = self
     }
 
-    // MARK: Private API
-
-    @IBAction func onDone(_ sender: Any) {
-        delegate?.didDismiss(controller: self, selected: selected)
-        dismiss(animated: trueUnlessReduceMotionEnabled)
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    @objc func onRefresh() {
-        fetch()
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationController?.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.white]
+        addMenuDoneButton()
     }
 
-    func fetch() {
+    // MARK: Overrides
+
+    override func fetch(page: String?) {
         client.fetchMilestones(owner: owner, repo: repo) { [weak self] (result) in
             switch result {
             case .success(let milestones):
                 self?.milestones = milestones
-                self?.tableView.reloadData()
             case .error:
-                ToastManager.showGenericError()
+                Squawk.showGenericError()
             }
-            self?.feedRefresh.endRefreshing()
+            self?.update(animated: true)
         }
     }
 
-    // MARK: UITableViewDataSource
+    // MARK: BaseListViewController2DataSource
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return milestones.count
-    }
-
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-        if let cell = cell as? MilestoneCell {
-            let milestone = milestones[indexPath.row]
-            cell.configure(
-                title: milestone.title,
-                date: milestone.dueOn,
-                showCheckmark: milestone == selected
-            )
+    func models(adapter: ListSwiftAdapter) -> [ListSwiftPair] {
+        return milestones.map { [dateFormatter, selected] milestone in
+            let due: String
+            if let date = milestone.dueOn {
+                let format = NSLocalizedString("Due by %@", comment: "")
+                due = String(format: format, dateFormatter.string(from: date))
+            } else {
+                due = NSLocalizedString("No due date", comment: "")
+            }
+            let value = MilestoneViewModel(title: milestone.title, due: due, selected: selected == milestone)
+            return ListSwiftPair.pair(value) { [weak self] in
+                let controller = MilestoneSectionController()
+                controller.delegate = self
+                return controller
+            }
         }
-        return cell
     }
 
-    // MARK: UITableViewDelegate
+    // MARK: MilestoneSectionControllerDelegate
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: trueUnlessReduceMotionEnabled)
-        let milestone = milestones[indexPath.row]
-        if milestone == selected {
+    func didSelect(value: MilestoneViewModel, controller: MilestoneSectionController) {
+        if value.selected {
             selected = nil
         } else {
-            selected = milestone
+            selected = milestones[controller.section]
         }
-        tableView.reloadData()
+        update(animated: true)
     }
 
 }
+

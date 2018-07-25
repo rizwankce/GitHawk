@@ -22,13 +22,14 @@ final class Feed: NSObject, UIScrollViewDelegate {
         case loadingNext
     }
 
-    let adapter: ListAdapter
+    let swiftAdapter: ListSwiftAdapter
     let collectionView: UICollectionView
 
     public private(set) var status: Status = .idle
     private weak var delegate: FeedDelegate?
     private let feedRefresh = FeedRefresh()
     private let managesLayout: Bool
+    private let loadingView = EmptyLoadingView()
 
     init(
         viewController: UIViewController,
@@ -36,7 +37,7 @@ final class Feed: NSObject, UIScrollViewDelegate {
         collectionView: UICollectionView? = nil,
         managesLayout: Bool = true
         ) {
-        self.adapter = ListAdapter(updater: ListAdapterUpdater(), viewController: viewController)
+        self.swiftAdapter = ListSwiftAdapter(viewController: viewController)
         self.delegate = delegate
         self.managesLayout = managesLayout
         self.collectionView = collectionView
@@ -53,9 +54,17 @@ final class Feed: NSObject, UIScrollViewDelegate {
 
     // MARK: Public API
 
+    var adapter: ListAdapter {
+        return swiftAdapter.listAdapter
+    }
+
     func refreshHead() {
         refresh()
         feedRefresh.beginRefreshing()
+    }
+
+    func showEmptyLoadingView() {
+        loadingView.isHidden = false
     }
 
     func viewDidLoad() {
@@ -70,20 +79,14 @@ final class Feed: NSObject, UIScrollViewDelegate {
         if collectionView.superview == nil {
             view.addSubview(collectionView)
         }
-    }
 
-    func viewDidAppear(_ animated: Bool) {
-        // put in a small delay to let container finish laying out
-        // prevents a bug from double-insetting the refresh control
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: {
-            if self.status == .loading {
-                self.feedRefresh.beginRefreshing()
-            }
-        })
+        view.addSubview(loadingView)
     }
 
     func viewWillLayoutSubviews(view: UIView) {
         let bounds = view.bounds
+
+        loadingView.frame = bounds
 
         let changed = bounds != collectionView.frame
         if managesLayout && changed {
@@ -96,6 +99,7 @@ final class Feed: NSObject, UIScrollViewDelegate {
 
     func finishLoading(dismissRefresh: Bool, animated: Bool = true, completion: (() -> Void)? = nil) {
         status = .idle
+        loadingView.isHidden = true
 
         adapter.performUpdates(animated: animated) { _ in
             if dismissRefresh {

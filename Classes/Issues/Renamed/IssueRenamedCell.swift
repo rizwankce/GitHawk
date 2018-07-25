@@ -8,6 +8,7 @@
 
 import UIKit
 import SnapKit
+import StyledTextKit
 
 protocol IssueRenamedCellDelegate: class {
     func didTapActor(cell: IssueRenamedCell)
@@ -26,7 +27,7 @@ final class IssueRenamedCell: UICollectionViewCell {
 
     private let actorLabel = UIButton()
     private let dateLabel = ShowMoreDetailsLabel()
-    private let titleView = AttributedStringView()
+    private let titleView = StyledTextView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -39,7 +40,7 @@ final class IssueRenamedCell: UICollectionViewCell {
             make.top.equalTo(0)
         }
 
-        dateLabel.font = Styles.Fonts.secondary
+        dateLabel.font = Styles.Text.secondary.preferredFont
         dateLabel.textColor = Styles.Colors.Gray.medium.color
         contentView.addSubview(dateLabel)
         dateLabel.snp.makeConstraints { make in
@@ -57,7 +58,7 @@ final class IssueRenamedCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         layoutContentViewForSafeAreaInsets()
-        titleView.reposition(width: contentView.bounds.width)
+        titleView.reposition(for: contentView.bounds.width)
     }
 
     // MARK: Private API
@@ -70,12 +71,12 @@ final class IssueRenamedCell: UICollectionViewCell {
 
     func configure(_ model: IssueRenamedModel) {
         let actorAttributes = [
-            NSAttributedStringKey.font: Styles.Fonts.secondaryBold,
+            NSAttributedStringKey.font: Styles.Text.secondaryBold.preferredFont,
             NSAttributedStringKey.foregroundColor: Styles.Colors.Gray.dark.color
         ]
         let actor = NSMutableAttributedString(string: model.actor, attributes: actorAttributes)
         let referencedAttributes = [
-            NSAttributedStringKey.font: Styles.Fonts.secondary,
+            NSAttributedStringKey.font: Styles.Text.secondary.preferredFont,
             NSAttributedStringKey.foregroundColor: Styles.Colors.Gray.medium.color
         ]
         actor.append(NSAttributedString(
@@ -86,7 +87,7 @@ final class IssueRenamedCell: UICollectionViewCell {
 
         dateLabel.setText(date: model.date)
 
-        titleView.configureAndSizeToFit(text: model.titleChangeString, width: contentView.bounds.width)
+        titleView.configure(with: model.titleChangeString, width: contentView.bounds.width)
     }
 
 }

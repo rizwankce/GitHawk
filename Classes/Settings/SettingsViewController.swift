@@ -1,5 +1,5 @@
 //
-//  SettingsViewController2.swift
+//  SettingsViewController.swift
 //  Freetime
 //
 //  Created by Ryan Nystrom on 7/31/17.
@@ -8,12 +8,15 @@
 
 import UIKit
 import SafariServices
+import GitHubAPI
+import GitHubSession
+import Squawk
 
 final class SettingsViewController: UITableViewController,
 NewIssueTableViewControllerDelegate {
 
     // must be injected
-    var sessionManager: GithubSessionManager!
+    var sessionManager: GitHubSessionManager!
     weak var rootNavigationManager: RootNavigationManager?
 
     var client: GithubClient!
@@ -21,6 +24,7 @@ NewIssueTableViewControllerDelegate {
     @IBOutlet weak var versionLabel: UILabel!
     @IBOutlet weak var reviewAccessCell: StyledTableCell!
     @IBOutlet weak var githubStatusCell: StyledTableCell!
+    @IBOutlet weak var reviewOnAppStoreCell: StyledTableCell!
     @IBOutlet weak var reportBugCell: StyledTableCell!
     @IBOutlet weak var viewSourceCell: StyledTableCell!
     @IBOutlet weak var signOutCell: StyledTableCell!
@@ -37,12 +41,12 @@ NewIssueTableViewControllerDelegate {
         super.viewDidLoad()
 
         versionLabel.text = Bundle.main.prettyVersionString
-        markReadSwitch.isOn = NotificationClient.readOnOpen()
+        markReadSwitch.isOn = NotificationModelController.readOnOpen
         apiStatusView.layer.cornerRadius = 7
         signatureSwitch.isOn = Signature.enabled
 
         updateBadge()
-		style()
+        style()
 
         NotificationCenter.default.addObserver(
             self,
@@ -56,33 +60,55 @@ NewIssueTableViewControllerDelegate {
         super.viewWillAppear(animated)
         rz_smoothlyDeselectRows(tableView: tableView)
         accountsCell.detailTextLabel?.text = sessionManager.focusedUserSession?.username ?? Constants.Strings.unknown
-        client?.fetchAPIStatus { [weak self] result in
-            self?.update(statusResult: result)
+
+        client.client.send(GitHubAPIStatusRequest()) { [weak self] result in
+            guard let strongSelf = self else { return }
+
+            switch result {
+            case .failure:
+                strongSelf.apiStatusView.isHidden = true
+                strongSelf.apiStatusLabel.text = NSLocalizedString("error", comment: "")
+            case .success(let response):
+                let text: String
+                let color: UIColor
+                switch response.data.status {
+                case .good:
+                    text = NSLocalizedString("Good", comment: "")
+                    color = Styles.Colors.Green.medium.color
+                case .minor:
+                    text = NSLocalizedString("Minor", comment: "")
+                    color = Styles.Colors.Yellow.medium.color
+                case .major:
+                    text = NSLocalizedString("Major", comment: "")
+                    color = Styles.Colors.Red.medium.color
+                }
+                strongSelf.apiStatusView.isHidden = false
+                strongSelf.apiStatusView.backgroundColor = color
+                strongSelf.apiStatusLabel.text = text
+                strongSelf.apiStatusLabel.textColor = color
+            }
         }
     }
 
     // MARK: UITableViewDelegate
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        func deselectRow() { tableView.deselectRow(at: indexPath, animated: trueUnlessReduceMotionEnabled) }
+        tableView.deselectRow(at: indexPath, animated: trueUnlessReduceMotionEnabled)
         let cell = tableView.cellForRow(at: indexPath)
 
         if cell === reviewAccessCell {
-            deselectRow()
             onReviewAccess()
         } else if cell === accountsCell {
-            deselectRow()
             onAccounts()
         } else if cell === githubStatusCell {
-            deselectRow()
             onGitHubStatus()
+        } else if cell === reviewOnAppStoreCell {
+            onReviewOnAppStore()
         } else if cell === reportBugCell {
-            deselectRow()
             onReportBug()
         } else if cell === viewSourceCell {
             onViewSource()
         } else if cell === signOutCell {
-            deselectRow()
             onSignOut()
         }
     }
@@ -93,19 +119,15 @@ NewIssueTableViewControllerDelegate {
         guard let url = URL(string: "https://github.com/settings/connections/applications/\(Secrets.GitHub.clientId)")
             else { fatalError("Should always create GitHub issue URL") }
         // iOS 11 login uses SFAuthenticationSession which shares credentials with Safari.app
-        if #available(iOS 11.0, *) {
-            UIApplication.shared.open(url, options: [:])
-        } else {
-            presentSafari(url: url)
-        }
+        UIApplication.shared.open(url, options: [:])
+        
     }
 
     func onAccounts() {
         if let navigationController = UIStoryboard(name: "Settings", bundle: nil).instantiateViewController(withIdentifier: "accountsNavigationController") as? UINavigationController,
             let accountsController = navigationController.topViewController as? SettingsAccountsViewController,
             let client = self.client {
-            accountsController.client = client
-            accountsController.sessionManager = sessionManager
+            accountsController.config(client: client.client, sessionManager: sessionManager)
             self.navigationController?.showDetailViewController(navigationController, sender: self)
         }
     }
@@ -115,16 +137,24 @@ NewIssueTableViewControllerDelegate {
             else { fatalError("Should always create GitHub Status URL") }
         presentSafari(url: url)
     }
+  
+    func onReviewOnAppStore() {
+      guard let url = URL(string: "itms-apps://itunes.apple.com/us/app/githawk-for-github/id1252320249")
+        else { fatalError("Should always be valid app store URL") }
+      if UIApplication.shared.canOpenURL(url) {
+        UIApplication.shared.open(url)
+      }
+    }
 
     func onReportBug() {
         guard let client = client,
             let viewController = NewIssueTableViewController.create(
                 client: client,
-                owner: "rnystrom",
+                owner: "GitHawkApp",
                 repo: "GitHawk",
                 signature: .bugReport
             ) else {
-                ToastManager.showGenericError()
+                Squawk.showGenericError()
                 return
         }
         viewController.delegate = self
@@ -134,9 +164,19 @@ NewIssueTableViewControllerDelegate {
     }
 
     func onViewSource() {
-        guard let url = URL(string: Constants.URLs.repository)
-            else { fatalError("Should always create GitHub URL") }
-		presentSafari(url: url)
+        guard let client = client else {
+            Squawk.showGenericError()
+            return
+        }
+
+        let repo = RepositoryDetails(
+            owner: "GitHawkApp",
+            name: "GitHawk",
+            defaultBranch: "master",
+            hasIssuesEnabled: true
+        )
+        let repoViewController = RepositoryViewController(client: client, repo: repo)
+        navigationController?.showDetailViewController(repoViewController, sender: self)
     }
 
     func onSignOut() {
@@ -199,34 +239,7 @@ NewIssueTableViewControllerDelegate {
     }
 
     @IBAction func onMarkRead(_ sender: Any) {
-        NotificationClient.setReadOnOpen(open: markReadSwitch.isOn)
-    }
-
-    func update(statusResult: Result<GithubClient.APIStatus>) {
-        switch statusResult {
-        case .error:
-            apiStatusView.isHidden = true
-            apiStatusLabel.text = NSLocalizedString("error", comment: "")
-        case .success(let status):
-
-            let text: String
-            let color: UIColor
-            switch status {
-            case .good:
-                text = NSLocalizedString("Good", comment: "")
-                color = Styles.Colors.Green.medium.color
-            case .minor:
-                text = NSLocalizedString("Minor", comment: "")
-                color = Styles.Colors.Yellow.medium.color
-            case .major:
-                text = NSLocalizedString("Major", comment: "")
-                color = Styles.Colors.Red.medium.color
-            }
-            apiStatusView.isHidden = false
-            apiStatusView.backgroundColor = color
-            apiStatusLabel.text = text
-            apiStatusLabel.textColor = color
-        }
+        NotificationModelController.setReadOnOpen(open: markReadSwitch.isOn)
     }
 
 	private func style() {

@@ -1,46 +1,75 @@
 # Uncomment the next line to define a global platform for your project
-platform :ios, '10.0'
 
 use_frameworks!
 inhibit_all_warnings!
 
-# normal pods
-pod 'Alamofire', '~> 4.4.0'
-pod 'AlamofireNetworkActivityIndicator', '~> 2.1'
-pod 'Apollo', '~> 0.7.0-alpha.5'
-pod 'HTMLString', '~> 4.0.1'
-pod 'NYTPhotoViewer', '~> 1.1.0'
-pod 'SDWebImage/GIF', '~> 4.0.0'
-pod 'SnapKit', '~> 4.0.0'
-pod 'TUSafariActivity', '~> 1.0.0'
-pod 'SwiftLint'
-pod 'Fabric'
-pod 'Crashlytics'
-pod 'Tabman', '~> 1.1'
-pod 'Firebase/Core'
-pod 'Firebase/Database' 
+def session_pods
+  pod 'GitHubAPI', :path => 'Local Pods/GitHubAPI'
+  pod 'GitHubSession', :path => 'Local Pods/GitHubSession'
+  pod 'DateAgo', :path => 'Local Pods/DateAgo'
+  pod 'StringHelpers', :path => 'Local Pods/StringHelpers'
+end
 
-# prerelease pods
-pod 'IGListKit', :git => 'https://github.com/Instagram/IGListKit.git', :branch => 'master'
+def testing_pods
+  # normal pods
+  pod 'AlamofireNetworkActivityIndicator', '~> 2.1'
+  pod 'HTMLString', '~> 4.0.1'
+  pod 'NYTPhotoViewer', '~> 1.1.0'
+  pod 'SDWebImage/GIF', '~> 4.0.0'
+  pod 'SnapKit', '~> 4.0.0'
+  pod 'TUSafariActivity', '~> 1.0.0'
+  pod 'SwiftLint'
+  pod 'Fabric'
+  pod 'Crashlytics'
+  pod 'Tabman', '~> 1.8'
+  pod 'Firebase/Core'
+  pod 'Firebase/Database' 
 
-# debugging pods
-pod 'FLEX', '~> 2.0', :configurations => ['Debug', 'TestFlight']
+  # prerelease pods
+  pod 'IGListKit/Swift', :git => 'https://github.com/Instagram/IGListKit.git', :branch => 'swift'
+  pod 'StyledTextKit', :git => 'https://github.com/GitHawkApp/StyledTextKit.git', :branch => 'master'
+  pod 'Highlightr', :git => 'https://github.com/GitHawkApp/Highlightr.git', :branch => 'master'
+  pod 'FlatCache', :git => 'https://github.com/GitHawkApp/FlatCache.git', :branch => 'master'
+  pod 'MessageViewController', :git => 'https://github.com/GitHawkApp/MessageViewController.git', :branch => 'master'
+  pod 'ContextMenu', :git => 'https://github.com/GitHawkApp/ContextMenu.git', :branch => 'master'
+  pod 'cmark-gfm-swift', :git => 'https://github.com/GitHawkApp/cmark-gfm-swift.git', :branch => 'master'
+  pod 'Squawk', :git => 'https://github.com/GitHawkApp/Squawk.git', :branch => 'master'
 
-# Local Pods w/ custom changes
-pod 'MMMarkdown', :path => 'Local Pods/MMMarkdown'
-pod 'SlackTextViewController', :path => 'Local Pods/SlackTextViewController'
-pod 'SwipeCellKit', :path => 'Local Pods/SwipeCellKit'
-pod 'FlatCache', :path => 'Local Pods/FlatCache'
-pod 'Highlightr', :path => 'Local Pods/Highlightr'
-pod 'StyledText', :path => 'Local Pods/StyledText'
-pod 'MessageViewController', :path => 'Local Pods/MessageViewController'
+  # debugging pods
+  pod 'FLEX', '~> 2.0', :configurations => ['Debug', 'TestFlight']
+
+  # Local Pods w/ custom changes
+  pod 'SwipeCellKit', :path => 'Local Pods/SwipeCellKit'
+end
 
 target 'Freetime' do
+
+  platform :ios, '11.0'
+
+  session_pods
+  testing_pods
+
+end
+
+target 'FreetimeWatch' do
+
+end
+
+target 'FreetimeWatch Extension' do
+
+  platform :watchos, '3.0'
+
+  session_pods
 
 end
 
 target 'FreetimeTests' do
-	pod 'FBSnapshotTestCase'
+  # normal pods
+  pod 'FBSnapshotTestCase'
+
+  session_pods
+  testing_pods
+
 end
 
 post_install do |installer|

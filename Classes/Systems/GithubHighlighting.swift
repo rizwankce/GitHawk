@@ -13,12 +13,17 @@ enum GithubHighlighting {
 
     private static var shared: Highlightr? = {
         let h = Highlightr()
-        h?.setTheme(to: "github", fontSize: Styles.Sizes.Text.code)
+        h?.setTheme(to: "github", fontSize: Styles.Text.code.preferredFont.pointSize)
         return h
     }()
 
     static func highlight(_ code: String, as language: String) -> NSAttributedString? {
-        return shared?.highlight(code, as: language, fastRender: true)
+        // Highlightr will return nil if given an empty language string
+        let fixedLanguage = language.isEmpty ? nil : language
+        return shared?.highlight(code, as: fixedLanguage, fastRender: true)
     }
-
+    
+    static func highlight(_ code: String) -> NSAttributedString? {
+        return shared?.highlight(code)
+    }
 }

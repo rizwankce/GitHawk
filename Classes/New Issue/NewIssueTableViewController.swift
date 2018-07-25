@@ -7,6 +7,8 @@
 //
 
 import UIKit
+import Squawk
+import GitHubAPI
 
 enum IssueSignatureType {
     case bugReport
@@ -99,7 +101,7 @@ final class NewIssueTableViewController: UITableViewController, UITextFieldDeleg
 
         // Make the return button move on to description field
         titleField.delegate = self
-        titleField.font = Styles.Fonts.body
+        titleField.font = Styles.Text.body.preferredFont
 
         // Setup markdown input view
         bodyField.githawkConfigure(inset: false)
@@ -139,7 +141,7 @@ final class NewIssueTableViewController: UITableViewController, UITextFieldDeleg
     /// Attempts to sends the current forms information to GitHub, on success will redirect the user to the new issue
     @objc func onSend() {
         guard let titleText = titleText else {
-            ToastManager.showError(message: NSLocalizedString("You must provide a title!", comment: "Invalid title when sending new issue"))
+            Squawk.showError(message: NSLocalizedString("You must provide a title!", comment: "Invalid title when sending new issue"))
             return
         }
 
@@ -149,20 +151,25 @@ final class NewIssueTableViewController: UITableViewController, UITextFieldDeleg
 
         let signature = self.signature?.addition ?? ""
 
-        client.createIssue(owner: owner, repo: repo, title: titleText, body: (bodyText ?? "") + signature) { [weak self] model in
+        client.client.send(V3CreateIssueRequest(
+            owner: owner,
+            repo: repo,
+            title: titleText,
+            body: (bodyText ?? "") + signature)
+        ) { [weak self] result in
             guard let strongSelf = self else { return }
-
             strongSelf.setRightBarItemIdle()
 
-            guard let model = model else {
-                ToastManager.showGenericError()
-                return
+            switch result {
+            case .success(let response):
+                let model = IssueDetailsModel(owner: strongSelf.owner, repo: strongSelf.repo, number: response.data.number)
+                let delegate = strongSelf.delegate
+                strongSelf.dismiss(animated: trueUnlessReduceMotionEnabled, completion: {
+                    delegate?.didDismissAfterCreatingIssue(model: model)
+                })
+            case .failure:
+                Squawk.showGenericError()
             }
-
-            let delegate = strongSelf.delegate
-            strongSelf.dismiss(animated: trueUnlessReduceMotionEnabled, completion: {
-                delegate?.didDismissAfterCreatingIssue(model: model)
-            })
         }
     }
 

@@ -7,18 +7,17 @@
 //
 
 import UIKit
+import StyledTextKit
 
 final class IssuePatchContentViewController: UIViewController {
 
-    private let file: File
-    private let client: GithubClient
+    private let patch: String
     private let codeView = CodeView()
 
-    init(file: File, client: GithubClient) {
-        self.file = file
-        self.client = client
+    init(patch: String, fileName: String) {
+        self.patch = patch
         super.init(nibName: nil, bundle: nil)
-        title = file.actualFileName
+        title = fileName
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -29,12 +28,15 @@ final class IssuePatchContentViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .white
         view.addSubview(codeView)
-        codeView.set(attributedCode: CreateDiffString(code: file.patch))
+        codeView.set(
+            attributedCode: CreateDiffString(code: patch)
+                .render(contentSizeCategory: UIApplication.shared.preferredContentSizeCategory)
+        )
     }
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        codeView.frame = view.bounds
+        codeView.frame = view.safeAreaLayoutGuide.layoutFrame
     }
 
 }

@@ -12,8 +12,8 @@ import IGListKit
 final class IssueReviewSectionController: ListBindingSectionController<IssueReviewModel>,
     ListBindingSectionControllerDataSource,
 IssueReviewDetailsCellDelegate,
-AttributedStringViewExtrasDelegate,
-IssueReviewViewCommentsCellDelegate {
+IssueReviewViewCommentsCellDelegate,
+MarkdownStyledTextViewDelegate {
 
     private lazy var webviewCache: WebviewCellHeightCache = {
         return WebviewCellHeightCache(sectionController: self)
@@ -39,6 +39,19 @@ IssueReviewViewCommentsCellDelegate {
         let rowSpacing = Styles.Sizes.rowSpacing
         self.inset = UIEdgeInsets(top: rowSpacing, left: 0, bottom: rowSpacing, right: 0)
         self.dataSource = self
+    }
+
+    // MARK: Private API
+
+    func didTap(attribute: DetectedMarkdownAttribute) {
+        if viewController?.handle(attribute: attribute) == true {
+            return
+        }
+        switch attribute {
+        case .issue(let issue):
+            viewController?.show(IssuesViewController(client: client, model: issue), sender: nil)
+        default: break
+        }
     }
 
     // MARK: ListBindingSectionControllerDataSource
@@ -113,8 +126,7 @@ IssueReviewViewCommentsCellDelegate {
             htmlDelegate: webviewCache,
             htmlNavigationDelegate: viewController,
             htmlImageDelegate: photoHandler,
-            attributedDelegate: viewController,
-            extrasAttributedDelegate: self,
+            markdownDelegate: self,
             imageHeightDelegate: imageCache
         )
 
@@ -132,15 +144,10 @@ IssueReviewViewCommentsCellDelegate {
         viewController?.presentProfile(login: actor)
     }
 
-    // MARK: AttributedStringViewIssueDelegate
+    // MARK: MarkdownStyledTextViewDelegate
 
-    func didTapIssue(view: AttributedStringView, issue: IssueDetailsModel) {
-        let controller = IssuesViewController(client: client, model: issue)
-        viewController?.show(controller, sender: nil)
-    }
-
-    func didTapCheckbox(view: AttributedStringView, checkbox: MarkdownCheckboxModel) {
-        
+    func didTap(cell: MarkdownStyledTextView, attribute: DetectedMarkdownAttribute) {
+        didTap(attribute: attribute)
     }
 
     // MARK: IssueReviewViewCommentsCellDelegate

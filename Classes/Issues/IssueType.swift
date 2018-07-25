@@ -14,12 +14,6 @@ struct FileChanges: Equatable {
     let additions: Int
     let deletions: Int
     let changedFiles: Int
-
-    static func == (lhs: FileChanges, rhs: FileChanges) -> Bool {
-        return lhs.additions == rhs.additions
-        && lhs.deletions == rhs.deletions
-        && lhs.changedFiles == rhs.changedFiles
-    }
 }
 
 protocol IssueType {
@@ -35,16 +29,19 @@ protocol IssueType {
     var assigneeFields: AssigneeFields { get }
     var milestoneFields: MilestoneFields? { get }
     var merged: Bool { get }
+    var targetBranch: String? { get }
     var locked: Bool { get }
     var headPaging: HeadPaging { get }
     var viewerCanUpdate: Bool { get }
     var fileChanges: FileChanges? { get }
 
     var reviewRequestModel: IssueAssigneesModel? { get }
+    func mergeModel(availableTypes: [IssueMergeType]) -> IssueMergeModel?
 
     func timelineViewModels(
         owner: String,
         repo: String,
+        contentSizeCategory: UIContentSizeCategory,
         width: CGFloat
         ) -> (models: [ListDiffable], mentionedUsers: [AutocompleteUser])
 

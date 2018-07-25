@@ -8,6 +8,7 @@
 
 import UIKit
 import IGListKit
+import GitHubAPI
 
 class RepositoryOverviewViewController: BaseListViewController<NSString>,
 BaseListViewControllerDataSource {
@@ -20,9 +21,9 @@ BaseListViewControllerDataSource {
         self.repo = repo
         self.client = RepositoryClient(githubClient: client, owner: repo.owner, name: repo.name)
         super.init(
-            emptyErrorMessage: NSLocalizedString("Cannot load README.", comment: ""),
-            dataSource: self
+            emptyErrorMessage: NSLocalizedString("Cannot load README.", comment: "")
         )
+        self.dataSource = self
         title = NSLocalizedString("Overview", comment: "")
     }
 
@@ -40,20 +41,39 @@ BaseListViewControllerDataSource {
     override func fetch(page: NSString?) {
         let repo = self.repo
         let width = view.bounds.width
-        client.fetchReadme { [weak self] result in
+        let contentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+
+        client.githubClient.client
+            .send(V3RepositoryReadmeRequest(owner: repo.owner, repo: repo.name)) { [weak self] result in
             switch result {
-            case .error:
-                self?.error(animated: trueUnlessReduceMotionEnabled)
-            case .success(let readme):
+            case .success(let response):
                 DispatchQueue.global().async {
-                    let options = GitHubMarkdownOptions(owner: repo.owner, repo: repo.name, flavors: [.baseURL])
-                    let models = CreateCommentModels(markdown: readme, width: width, options: options)
+                    let branch: String
+                    if let items = URLComponents(url: response.data.url, resolvingAgainstBaseURL: false)?.queryItems,
+                        let index = items.index(where: { $0.name == "ref" }),
+                        let value = items[index].value {
+                        branch = value
+                    } else {
+                        branch = "master"
+                    }
+
+                    let models = MarkdownModels(
+                        response.data.content,
+                        owner: repo.owner,
+                        repo: repo.name,
+                        width: width,
+                        viewerCanUpdate: false,
+                        contentSizeCategory: contentSizeCategory,
+                        branch: branch
+                    )
                     let model = RepositoryReadmeModel(models: models)
                     DispatchQueue.main.async { [weak self] in
                         self?.readme = model
                         self?.update(animated: trueUnlessReduceMotionEnabled)
                     }
                 }
+            case .failure:
+                self?.error(animated: trueUnlessReduceMotionEnabled)
             }
         }
     }
@@ -76,8 +96,7 @@ BaseListViewControllerDataSource {
     func emptySectionController(listAdapter: ListAdapter) -> ListSectionController {
         return RepositoryEmptyResultsSectionController(
             topInset: 0,
-            topLayoutGuide: topLayoutGuide,
-            bottomLayoutGuide: bottomLayoutGuide,
+            layoutInsets: view.safeAreaInsets, 
             type: .readme
         )
     }

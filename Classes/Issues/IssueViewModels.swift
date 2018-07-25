@@ -8,17 +8,19 @@
 
 import UIKit
 import IGListKit
+import StyledTextKit
 
-func titleStringSizing(title: String, width: CGFloat) -> NSAttributedStringSizing {
-    let attributedString = NSAttributedString(
-        string: title,
-        attributes: [
-            .font: Styles.Fonts.headline,
-            .foregroundColor: Styles.Colors.Gray.dark.color
-        ])
-    return NSAttributedStringSizing(
-        containerWidth: width,
-        attributedText: attributedString,
+func titleStringSizing(
+    title: String,
+    contentSizeCategory: UIContentSizeCategory,
+    width: CGFloat
+    ) -> StyledTextRenderer {
+    let builder = StyledTextBuilder(styledText: StyledText(
+        text: title, style: Styles.Text.headline.with(foreground: Styles.Colors.Gray.dark.color)
+    ))
+    return StyledTextRenderer(
+        string: builder.build(),
+        contentSizeCategory: contentSizeCategory,
         inset: IssueTitleCell.inset,
         backgroundColor: Styles.Colors.background
     )
@@ -46,14 +48,11 @@ func createIssueReactions(reactions: ReactionFields) -> IssueCommentReactionView
     return IssueCommentReactionViewModel(models: models)
 }
 
-func commentModelOptions(owner: String, repo: String) -> GitHubMarkdownOptions {
-    return GitHubMarkdownOptions(owner: owner, repo: repo, flavors: [.issueShorthand, .usernames])
-}
-
 func createCommentModel(
     id: String,
     commentFields: CommentFields,
     reactionFields: ReactionFields,
+    contentSizeCategory: UIContentSizeCategory,
     width: CGFloat,
     owner: String,
     repo: String,
@@ -76,12 +75,13 @@ func createCommentModel(
         editedAt: commentFields.lastEditedAt?.githubDate
     )
 
-    let options = commentModelOptions(owner: owner, repo: repo)
-    let bodies = CreateCommentModels(
-        markdown: commentFields.body,
+    let bodies = MarkdownModels(
+        commentFields.body,
+        owner: owner,
+        repo: repo,
         width: width,
-        options: options,
-        viewerCanUpdate: viewerCanUpdate
+        viewerCanUpdate: viewerCanUpdate,
+        contentSizeCategory: contentSizeCategory
     )
     let reactions = createIssueReactions(reactions: reactionFields)
     let collapse = IssueCollapsedBodies(bodies: bodies, width: width)

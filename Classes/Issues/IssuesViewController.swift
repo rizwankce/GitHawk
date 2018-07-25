@@ -13,15 +13,19 @@ import SafariServices
 import SnapKit
 import FlatCache
 import MessageViewController
+import Squawk
+import ContextMenu
+import GitHubAPI
 
-final class IssuesViewController: MessageViewController,
+final class IssuesViewController:
+    MessageViewController,
     ListAdapterDataSource,
     FeedDelegate,
     AddCommentListener,
     FeedSelectionProviding,
     IssueNeckLoadSectionControllerDelegate,
     FlatCacheListener,
-IssueManagingNavSectionControllerDelegate {
+    IssueCommentSectionControllerDelegate {
 
     private let client: GithubClient
     private let model: IssueDetailsModel
@@ -29,12 +33,13 @@ IssueManagingNavSectionControllerDelegate {
     private let textActionsController = TextActionsController()
     private var bookmarkNavController: BookmarkNavigationController? = nil
     private var autocompleteController: AutocompleteController!
+    private let manageController: IssueManagingContextController
 
     private var needsScrollToBottom = false
+    private var lastTimelineElement: ListDiffable?
 
     // must fetch collaborator info from API before showing editing controls
     private var viewerIsCollaborator = false
-    private let manageKey = "manageKey" as ListDiffable
 
     lazy private var feed: Feed = {
         let f = Feed(viewController: self, delegate: self, managesLayout: false)
@@ -54,7 +59,7 @@ IssueManagingNavSectionControllerDelegate {
                     name: self.model.repo,
                     owner: self.model.owner,
                     number: self.model.number,
-                    title: result.title.attributedText.string,
+                    title: result.title.string.allText,
                     defaultBranch: result.defaultBranch
                 )
                 self.bookmarkNavController = BookmarkNavigationController(store: client.bookmarksStore, model: bookmark)
@@ -63,6 +68,8 @@ IssueManagingNavSectionControllerDelegate {
                 hidden = true
             }
             self.setMessageView(hidden: hidden, animated: trueUnlessReduceMotionEnabled)
+
+            self.manageController.resultID = resultID
         }
     }
 
@@ -90,18 +97,24 @@ IssueManagingNavSectionControllerDelegate {
         self.model = model
         self.addCommentClient = AddCommentClient(client: client)
         self.needsScrollToBottom = scrollToBottom
+        self.manageController = IssueManagingContextController(model: model, client: client)
 
         super.init(nibName: nil, bundle: nil)
 
         self.autocompleteController = AutocompleteController(
             messageAutocompleteController: messageAutocompleteController,
-            autocomplete: IssueCommentAutocomplete(autocompletes: [EmojiAutocomplete()])
+            autocomplete: IssueCommentAutocomplete(autocompletes: [
+                EmojiAutocomplete(),
+                IssueAutocomplete(client: client.client, owner: model.owner, repo: model.repo)
+                ])
         )
 
         self.hidesBottomBarWhenPushed = true
         self.addCommentClient.addListener(listener: self)
 
         cacheKey = "issue.\(model.owner).\(model.repo).\(model.number)"
+
+        manageController.viewController = self
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -117,13 +130,16 @@ IssueManagingNavSectionControllerDelegate {
         let labelString = String(format: labelFormat, arguments: [model.number, model.repo, model.owner])
 
         let navigationTitle = NavigationTitleDropdownView()
-        navigationItem.titleView = navigationTitle
         navigationTitle.addTarget(self, action: #selector(onNavigationTitle(sender:)), for: .touchUpInside)
         navigationTitle.configure(
             title: "#\(model.number)",
             subtitle: "\(model.owner)/\(model.repo)",
-            accessibilityLabel: labelString
+            accessibilityLabel: labelString,
+            accessibilityHint: NSLocalizedString(
+                "Gives the option to view the repository's overview or owner",
+                comment: "The hint for tapping the navigationBar's repository information.")
         )
+        navigationItem.titleView = navigationTitle
 
         feed.viewDidLoad()
         feed.adapter.dataSource = self
@@ -136,20 +152,7 @@ IssueManagingNavSectionControllerDelegate {
         view.backgroundColor = Styles.Colors.background
 
         // setup message view properties
-        borderColor = Styles.Colors.Gray.border.color
-        messageView.placeholderText = NSLocalizedString("Leave a comment", comment: "")
-        messageView.placeholderTextColor = Styles.Colors.Gray.light.color
-        messageView.keyboardType = .twitter
-        messageView.set(buttonIcon: UIImage(named: "send")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        messageView.buttonTint = Styles.Colors.Blue.medium.color
-        messageView.font = Styles.Fonts.body
-        messageView.inset = UIEdgeInsets(
-            top: Styles.Sizes.gutter,
-            left: Styles.Sizes.gutter,
-            bottom: Styles.Sizes.rowSpacing / 2,
-            right: Styles.Sizes.gutter
-        )
-        messageView.addButton(target: self, action: #selector(didPressButton(_:)))
+        configure(target: self, action: #selector(didPressButton(_:)))
 
         let getMarkdownBlock = { [weak self] () -> (String) in
             return self?.messageView.text ?? ""
@@ -168,15 +171,17 @@ IssueManagingNavSectionControllerDelegate {
         textActionsController.configure(client: client, textView: messageView.textView, actions: actions)
         textActionsController.viewController = self
 
-        actions.frame = CGRect(x: 0, y: 0, width: 0, height: 40)
+        actions.frame = CGRect(x: 0, y: 0, width: 0, height: 32)
         messageView.add(contentView: actions)
+        
+        //show disabled bookmark button until issue has finished loading
+        navigationItem.rightBarButtonItems = [ moreOptionsItem, BookmarkNavigationController.disabledNavigationItem ]
 
-        navigationItem.rightBarButtonItem = moreOptionsItem
+        view.addSubview(manageController.manageButton)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        feed.viewDidAppear(animated)
         let informator = HandoffInformator(
             activityName: "viewIssue",
             activityTitle: "\(model.owner)/\(model.repo)#\(model.number)",
@@ -196,10 +201,18 @@ IssueManagingNavSectionControllerDelegate {
     }
 
     override func viewSafeAreaInsetsDidChange() {
-        if #available(iOS 11.0, *) {
-            super.viewSafeAreaInsetsDidChange()
-            feed.collectionView.updateSafeInset(container: view, base: Styles.Sizes.threadInset)
-        }
+        super.viewSafeAreaInsetsDidChange()
+        feed.collectionView.updateSafeInset(container: view, base: Styles.Sizes.threadInset)
+    }
+
+    override func didLayout() {
+        let manageButtonSize = manageController.manageButton.bounds.size
+        manageController.manageButton.frame = CGRect(
+            origin: CGPoint(
+                x: view.bounds.width - manageButtonSize.width - Styles.Sizes.gutter - view.safeAreaInsets.right,
+                y: messageView.frame.minY - manageButtonSize.height - Styles.Sizes.gutter),
+            size: manageButtonSize
+        )
     }
 
     // MARK: Private API
@@ -228,38 +241,26 @@ IssueManagingNavSectionControllerDelegate {
             name: model.repo,
             owner: model.owner,
             number: model.number,
-            title: result.title.attributedText.string,
+            title: result.title.string.allText,
             defaultBranch: result.defaultBranch
         )
     }
 
     func configureNavigationItems() {
-        var items = [moreOptionsItem]
-        if let bookmarkItem = bookmarkNavController?.navigationItem {
-            items.append(bookmarkItem)
-        }
-        navigationItem.rightBarButtonItems = items
-    }
-
-    func viewOwnerAction() -> UIAlertAction? {
-        weak var weakSelf = self
-        return AlertAction(AlertActionBuilder { $0.rootViewController = weakSelf })
-            .view(owner: model.owner)
+        guard let rightbarButtonItems = navigationItem.rightBarButtonItems else { return }
+        guard let bookmarkItem = rightbarButtonItems.last else { return }
+        bookmarkNavController?.configureNavigationItem(bookmarkItem)
     }
 
     func viewRepoAction() -> UIAlertAction? {
         guard let result = result else { return nil }
-
-        let repo = RepositoryDetails(
+        return action(
             owner: model.owner,
-            name: model.repo,
-            defaultBranch: result.defaultBranch,
-            hasIssuesEnabled: result.hasIssuesEnabled
+            repo: model.repo,
+            branch: result.defaultBranch,
+            issuesEnabled: result.hasIssuesEnabled,
+            client: client
         )
-
-        weak var weakSelf = self
-        return AlertAction(AlertActionBuilder { $0.rootViewController = weakSelf })
-            .view(client: client, repo: repo)
     }
 
     @objc func onMore(sender: UIBarButtonItem) {
@@ -279,11 +280,19 @@ IssueManagingNavSectionControllerDelegate {
             ) { [weak self] (result) in
                 switch result {
                 case .success(let permission):
-                    self?.viewerIsCollaborator = permission.canManage
+                    let collab: Bool
+                    switch permission {
+                    case .admin, .write: collab = true
+                    case .read, .none: collab = false
+                    }
+                    self?.viewerIsCollaborator = collab
+                    if collab {
+                        self?.manageController.permissions = .collaborator
+                    }
                     // avoid finishLoading() so empty view doesn't appear
                     self?.feed.adapter.performUpdates(animated: trueUnlessReduceMotionEnabled)
                 case .error:
-                    ToastManager.showGenericError()
+                    Squawk.showGenericError()
                 }
             }
         }
@@ -331,32 +340,10 @@ IssueManagingNavSectionControllerDelegate {
     }
 
     func scrollToLastContentElement() {
-        let adapter = feed.adapter
-        let collectionView = feed.collectionView
-        let objects = adapter.objects()
-        guard objects.count > 1 else { return }
+        guard let lastTimeline = lastTimelineElement else { return }
 
         // assuming the last element is the "actions" when collaborator
-        let lastContent = objects[objects.count - (viewerIsCollaborator ? 2 : 1)]
-
-        guard let sectionController = adapter.sectionController(for: lastContent) else { return }
-
-        let lastItemIndex = sectionController.numberOfItems() - 1
-        let path = IndexPath(item: lastItemIndex, section: sectionController.section)
-
-        guard let attributes = feed.collectionView.layoutAttributesForItem(at: path) else { return }
-
-        let paddedMaxY = min(attributes.frame.maxY + Styles.Sizes.rowSpacing, collectionView.contentSize.height)
-        let viewportHeight = collectionView.bounds.height
-
-        // make sure not already at the top
-        guard paddedMaxY > viewportHeight else { return }
-
-        let offset = paddedMaxY - viewportHeight
-        collectionView.setContentOffset(
-            CGPoint(x: collectionView.contentOffset.x, y: offset),
-            animated: trueUnlessReduceMotionEnabled
-        )
+        feed.adapter.scroll(to: lastTimeline, padding: Styles.Sizes.rowSpacing)
     }
 
     func onPreview() {
@@ -371,7 +358,7 @@ IssueManagingNavSectionControllerDelegate {
     @objc func onNavigationTitle(sender: UIView) {
         let alert = UIAlertController.configured(preferredStyle: .actionSheet)
         alert.addActions([
-            viewOwnerAction(),
+            action(owner: model.owner),
             viewRepoAction(),
             AlertAction.cancel()
             ])
@@ -385,10 +372,6 @@ IssueManagingNavSectionControllerDelegate {
         guard let current = self.result else { return [] }
 
         var objects: [ListDiffable] = [current.status]
-
-        if viewerIsCollaborator {
-            objects.append(manageKey)
-        }
 
         // BEGIN collect metadata that lives between title and root comment
         var metadata = [ListDiffable]()
@@ -408,8 +391,13 @@ IssueManagingNavSectionControllerDelegate {
             metadata.append(IssueFileChangesModel(changes: changes))
         }
         // END metadata collection
+        
+        objects.append(IssueTitleModel(string: current.title, trailingMetadata: metadata.count > 0))
+        
+        if let targetBranch = current.targetBranch {
+            objects.append(targetBranch)
+        }
 
-        objects.append(IssueTitleModel(attributedString: current.title, trailingMetadata: metadata.count > 0))
         objects += metadata
 
         if let rootComment = current.rootComment {
@@ -422,28 +410,27 @@ IssueManagingNavSectionControllerDelegate {
 
         objects += current.timelineViewModels
 
-        if viewerIsCollaborator || current.viewerCanUpdate {
-            objects.append(IssueManagingModel(
-                objectId: current.id,
-                pullRequest: current.pullRequest,
-                role: viewerIsCollaborator ? .collaborator : .author
-            ))
+        // side effect so to jump to the last element when auto scrolling
+        lastTimelineElement = objects.last
+
+        if viewerIsCollaborator,
+            current.status.status == .open,
+            let merge = current.mergeModel {
+            objects.append(merge)
         }
 
         return objects
     }
 
     func listAdapter(_ listAdapter: ListAdapter, sectionControllerFor object: Any) -> ListSectionController {
-        if let object = object as? ListDiffable, object === manageKey {
-            return IssueManagingNavSectionController(delegate: self)
-        }
-
         switch object {
         case is IssueTitleModel: return IssueTitleSectionController()
-        case is IssueCommentModel: return IssueCommentSectionController(
-            model: model,
-            client: client,
-            autocomplete: autocompleteController.autocomplete.copy
+        case is IssueCommentModel:
+            return IssueCommentSectionController(
+                model: model,
+                client: client,
+                autocomplete: autocompleteController.autocomplete.copy,
+                issueCommentDelegate: self
             )
         case is IssueLabelsModel: return IssueLabelsSectionController(issue: model)
         case is IssueStatusModel: return IssueStatusSectionController()
@@ -465,7 +452,8 @@ IssueManagingNavSectionControllerDelegate {
         case is IssueNeckLoadModel: return IssueNeckLoadSectionController(delegate: self)
         case is Milestone: return IssueMilestoneSectionController(issueModel: model)
         case is IssueFileChangesModel: return IssueViewFilesSectionController(issueModel: model, client: client)
-        case is IssueManagingModel: return IssueManagingSectionController(model: model, client: client)
+        case is IssueMergeModel: return IssueMergeSectionController(model: model, client: client, resultID: resultID)
+        case is IssueTargetBranchModel: return IssueTargetBranchSectionController()
         default: fatalError("Unhandled object: \(object)")
         }
     }
@@ -506,6 +494,7 @@ IssueManagingNavSectionControllerDelegate {
                 id: id,
                 commentFields: commentFields,
                 reactionFields: reactionFields,
+                contentSizeCategory: UIApplication.shared.preferredContentSizeCategory,
                 width: view.bounds.width,
                 owner: model.owner,
                 repo: model.repo,
@@ -551,10 +540,23 @@ IssueManagingNavSectionControllerDelegate {
         }
     }
 
-    // MARK: IssueManagingNavSectionControllerDelegate
+    // MARK: IssueCommentSectionControllerDelegate
 
-    func didSelect(managingNavController: IssueManagingNavSectionController) {
-        feed.collectionView.scrollToBottom(animated: true)
+    func didSelectReply(to sectionController: IssueCommentSectionController, commentModel: IssueCommentModel) {
+        setMessageView(hidden: false, animated: true)
+        messageView.textView.becomeFirstResponder()
+        let quote = getCommentUntilNewLine(from: commentModel.rawMarkdown)
+        messageView.text = ">\(quote)\n\n@\(commentModel.details.login) "
+
+        feed.adapter.scroll(to: commentModel, padding: Styles.Sizes.rowSpacing)
+    }
+
+    private func getCommentUntilNewLine(from string: String) -> String {
+        let substring = string.components(separatedBy: .newlines)[0]
+        if string == substring {
+            return string
+        }
+        return substring + " ..."
     }
 
 }

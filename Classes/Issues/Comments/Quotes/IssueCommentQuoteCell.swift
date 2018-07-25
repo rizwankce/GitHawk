@@ -8,6 +8,11 @@
 
 import UIKit
 import IGListKit
+import StyledTextKit
+
+protocol IssueCommentQuoteCellDelegate: class {
+    func didTap(cell: IssueCommentQuoteCell, attribute: DetectedMarkdownAttribute)
+}
 
 final class IssueCommentQuoteCell: IssueCommentBaseCell, ListBindable {
 
@@ -21,12 +26,11 @@ final class IssueCommentQuoteCell: IssueCommentBaseCell, ListBindable {
         )
     }
 
-    let textView = AttributedStringView()
+    private let textView = MarkdownStyledTextView()
     private var borders = [UIView]()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-
         contentView.addSubview(textView)
     }
 
@@ -36,7 +40,7 @@ final class IssueCommentQuoteCell: IssueCommentBaseCell, ListBindable {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        textView.reposition(width: contentView.bounds.width)
+        textView.reposition(for: contentView.bounds.width)
         for (i, border) in borders.enumerated() {
             border.frame = CGRect(
                 x: Styles.Sizes.commentGutter + (IssueCommentQuoteCell.borderWidth + Styles.Sizes.columnSpacing) * CGFloat(i),
@@ -45,6 +49,11 @@ final class IssueCommentQuoteCell: IssueCommentBaseCell, ListBindable {
                 height: contentView.bounds.height - Styles.Sizes.rowSpacing
             )
         }
+    }
+
+    var delegate: MarkdownStyledTextViewDelegate? {
+        get { return textView.tapDelegate }
+        set { textView.tapDelegate = newValue }
     }
 
     // MARK: ListBindable
@@ -63,9 +72,7 @@ final class IssueCommentQuoteCell: IssueCommentBaseCell, ListBindable {
             contentView.addSubview(border)
             borders.append(border)
         }
-
-        textView.configureAndSizeToFit(text: viewModel.quote, width: contentView.bounds.width)
-
+        textView.configure(with: viewModel.string, width: contentView.bounds.width)
         setNeedsLayout()
     }
 

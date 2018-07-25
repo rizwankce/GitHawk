@@ -18,6 +18,8 @@ final class NavigationTitleDropdownView: UIControl {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityTraits |= UIAccessibilityTraitButton
 
         let chevronSize = chevron.image?.size ?? .zero
 
@@ -77,11 +79,6 @@ final class NavigationTitleDropdownView: UIControl {
         fadeControls(alpha: 1)
     }
 
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesMoved(touches, with: event)
-        fadeControls(alpha: 1)
-    }
-
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
         fadeControls(alpha: 1)
@@ -89,11 +86,16 @@ final class NavigationTitleDropdownView: UIControl {
 
     // MARK: Public API
 
-    func configure(title: String?, subtitle: String?, accessibilityLabel: String? = nil) {
+    func configure(
+        title: String?,
+        subtitle: String?,
+        accessibilityLabel: String? = nil,
+        accessibilityHint: String? = nil
+        ) {
         guard let title = title else { return }
 
         let titleAttributes: [NSAttributedStringKey: Any] = [
-            .font: Styles.Fonts.bodyBold,
+            .font: Styles.Text.bodyBold.preferredFont,
             .foregroundColor: Styles.Colors.Gray.dark.color
         ]
 
@@ -101,7 +103,7 @@ final class NavigationTitleDropdownView: UIControl {
         if let subtitle = subtitle {
             attributedTitle.append(NSAttributedString(string: "\n"))
             attributedTitle.append(NSAttributedString(string: subtitle, attributes: [
-                .font: Styles.Fonts.secondaryBold,
+                .font: Styles.Text.secondaryBold.preferredFont,
                 .foregroundColor: Styles.Colors.Gray.light.color
                 ]))
         }
@@ -109,8 +111,7 @@ final class NavigationTitleDropdownView: UIControl {
         label.attributedText = attributedTitle
 
         self.accessibilityLabel = accessibilityLabel ?? title
-
-        invalidateIntrinsicContentSize()
+        self.accessibilityHint = accessibilityHint
     }
 
     // MARK: Private API

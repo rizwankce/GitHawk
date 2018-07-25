@@ -3,6 +3,9 @@ query IssueOrPullRequest($owner: String!, $repo: String!, $number: Int!, $page_s
     name
     hasIssuesEnabled
     viewerCanAdminister
+    mergeCommitAllowed
+    rebaseMergeAllowed
+    squashMergeAllowed
     mentionableUsers(first: 20) {
       nodes {
         avatarUrl
@@ -55,9 +58,14 @@ query IssueOrPullRequest($owner: String!, $repo: String!, $number: Int!, $page_s
             }
             ... on ClosedEvent {
               ...nodeFields
-              closedCommit: commit {oid}
               actor {login}
               createdAt
+              closer {
+                ... on Commit { oid }
+                ... on PullRequest {
+                  mergeCommit { oid }
+                }
+              }
             }
             ... on ReopenedEvent {
               ...nodeFields
@@ -215,9 +223,14 @@ query IssueOrPullRequest($owner: String!, $repo: String!, $number: Int!, $page_s
             }
             ... on ClosedEvent {
               ...nodeFields
-              closedCommit: commit {oid}
               actor {login}
               createdAt
+              closer {
+                ... on Commit { oid }
+                ... on PullRequest {
+                  mergeCommit { oid }
+                }
+              }
             }
             ... on ReopenedEvent {
               ...nodeFields
@@ -375,6 +388,13 @@ query IssueOrPullRequest($owner: String!, $repo: String!, $number: Int!, $page_s
             }
           }
         }
+        commits(last: 1) {
+          nodes {
+            commit {
+              ...commitContext
+            }
+          }
+        }
         milestone{...milestoneFields}
         ...reactionFields
         ...commentFields
@@ -387,9 +407,11 @@ query IssueOrPullRequest($owner: String!, $repo: String!, $number: Int!, $page_s
         number
         title
         merged
+        baseRefName
         changedFiles
         additions
         deletions
+        mergeable
       }
     }
   }

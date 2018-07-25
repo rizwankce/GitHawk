@@ -12,28 +12,25 @@ import XCTest
 @testable import Freetime
 class BookmarkViewModelTests: XCTestCase {
 
-    var issue: Bookmark!
-    var other: Bookmark!
+    var bookmark: Bookmark!
+    var bookmarkViewModel: BookmarkViewModel!
 
-    var issueModel: BookmarkViewModel!
-    var otherModel: BookmarkViewModel!
-
-    override func setUp() {
-        super.setUp()
-
-        issue = Bookmark(type: .issue, name: "IGListKit on Bookmarks", owner: "rizwankce", title: "Bookmarks view controller not using IGLK")
-        issueModel = BookmarkViewModel(bookmark: issue, width: 0)
-
-        other = Bookmark(type: .commit, name: "Implemented Bookmark ViewModel", owner: "heshamsalman")
-        otherModel = BookmarkViewModel(bookmark: other, width: 0)
+    func test_bookmarkText_issue() {
+        bookmark = Bookmark(type: .issue, name: "IGListKit on Bookmarks", owner: "rizwankce", title: "Bookmarks view controller not using IGLK")
+        bookmarkViewModel = BookmarkViewModel(bookmark: bookmark, contentSizeCategory: .large, width: 0)
+        XCTAssertEqual(bookmark.title, bookmarkViewModel.text.string.allText)
     }
 
-    func test_bookmarkText_other() {
-        let string = NSMutableAttributedString(attributedString: RepositoryAttributedString(owner: other.owner, name: other.name))
-        let expected = NSAttributedStringSizing(containerWidth: 0, attributedText: string, inset: BookmarkCell.titleInset)
-        let actual = otherModel.text
+    func test_bookmarkText_pullRequest() {
+        bookmark = Bookmark(type: .pullRequest, name: "Implemented Bookmark ViewModel", owner: "heshamsalman")
+        bookmarkViewModel = BookmarkViewModel(bookmark: bookmark, contentSizeCategory: .large, width: 0)
+        XCTAssertEqual(bookmark.title, bookmarkViewModel.text.string.allText)
+    }
 
-        XCTAssertEqual(expected.attributedText, actual.attributedText)
+    func test_bookmarkText_repository() {
+        bookmark = Bookmark(type: .repo, name: "GitHawk", owner: "GitHawkApp")
+        bookmarkViewModel = BookmarkViewModel(bookmark: bookmark, contentSizeCategory: .large, width: 0)
+        XCTAssertEqual("\(bookmark.owner)/\(bookmark.name)", bookmarkViewModel.text.string.allText)
     }
 
 }

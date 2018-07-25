@@ -17,6 +17,8 @@ extension NotificationType {
         case .commit: image = #imageLiteral(resourceName: "git-commit")
         case .issue: image = #imageLiteral(resourceName: "issue-opened")
         case .pullRequest: image = #imageLiteral(resourceName: "git-pull-request")
+        case .release: image = #imageLiteral(resourceName: "tag")
+        case .securityVulnerability: image = #imageLiteral(resourceName: "alert")
         }
 
         return image

@@ -11,6 +11,7 @@ import Tabman
 import Pageboy
 import TUSafariActivity
 import SafariServices
+import Squawk
 
 class RepositoryViewController: TabmanViewController,
 PageboyViewControllerDataSource,
@@ -23,7 +24,7 @@ NewIssueTableViewControllerDelegate {
 
     var moreOptionsItem: UIBarButtonItem {
         let rightItem = UIBarButtonItem(image: UIImage(named: "bullets-hollow"), target: self, action: #selector(RepositoryViewController.onMore(sender:)))
-        rightItem.accessibilityLabel = NSLocalizedString("More options", comment: "")
+        rightItem.accessibilityLabel = Constants.Strings.moreOptions
         return rightItem
     }
 
@@ -68,7 +69,7 @@ NewIssueTableViewControllerDelegate {
         delegate = self
         bar.items = controllers.map { Item(title: $0.title ?? "" ) }
         bar.appearance = TabmanBar.Appearance({ appearance in
-            appearance.text.font = Styles.Fonts.button
+            appearance.text.font = Styles.Text.button.preferredFont
             appearance.state.color = Styles.Colors.Gray.light.color
             appearance.state.selectedColor = Styles.Colors.Blue.medium.color
             appearance.indicator.color = Styles.Colors.Blue.medium.color
@@ -116,7 +117,7 @@ NewIssueTableViewControllerDelegate {
             repo: repo.name,
             signature: .sentWithGitHawk)
         else {
-            ToastManager.showGenericError()
+            Squawk.showGenericError()
             return nil
         }
 
@@ -139,7 +140,6 @@ NewIssueTableViewControllerDelegate {
             AlertAction(alertBuilder).share([repoUrl], activities: [TUSafariActivity()]) {
                 $0.popoverPresentationController?.setSourceView(sender)
             },
-            AlertAction(alertBuilder).view(owner: repo.owner),
             AlertAction.cancel()
         ])
         alert.popoverPresentationController?.setSourceView(sender)
