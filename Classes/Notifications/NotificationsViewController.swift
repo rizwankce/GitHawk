@@ -15,7 +15,10 @@ final class NotificationsViewController: BaseListViewController2<Int>,
 BaseListViewController2DataSource,
 ForegroundHandlerDelegate,
 FlatCacheListener,
-BaseListViewController2EmptyDataSource {
+TabNavRootViewControllerType,
+BaseListViewController2EmptyDataSource,
+ReviewGitHubAccessDelegate
+{
 
     private let modelController: NotificationModelController
     private let foreground = ForegroundHandler(threshold: 5 * 60)
@@ -52,7 +55,7 @@ BaseListViewController2EmptyDataSource {
 
         makeBackBarItemEmpty()
         resetRightBarItem()
-
+        
         switch inboxType {
         case .unread:
             let item = UIBarButtonItem(
@@ -128,7 +131,7 @@ BaseListViewController2EmptyDataSource {
         let hasUnread = unread > 0
         navigationItem.rightBarButtonItem?.isEnabled = hasUnread
         navigationController?.tabBarItem.badgeValue = hasUnread ? "\(unread)" : nil
-        BadgeNotifications.update(count: unread)
+        BadgeNotifications.updateBadge(count: unread)
     }
 
     @objc func onMore(sender: UIBarButtonItem) {
@@ -226,7 +229,7 @@ BaseListViewController2EmptyDataSource {
                 generator.notificationOccurred(.success)
 
                 // clear all badges
-                BadgeNotifications.update(count: 0)
+                BadgeNotifications.updateBadge(count: 0)
 
                 // change the spinner to the mark all item
                 // don't update state here; it is managed by `fetch`
@@ -277,7 +280,10 @@ BaseListViewController2EmptyDataSource {
     func emptyModel(for adapter: ListSwiftAdapter) -> ListSwiftPair {
         let layoutInsets = view.safeAreaInsets
         return ListSwiftPair.pair("empty-notification-value", {
-            return NoNewNotificationSectionController(layoutInsets: layoutInsets)
+            return NoNewNotificationSectionController(
+                layoutInsets: layoutInsets,
+                reviewGitHubAccessDelegate: self
+		)
         })
     }
 
@@ -292,6 +298,25 @@ BaseListViewController2EmptyDataSource {
     func flatCacheDidUpdate(cache: FlatCache, update: FlatCache.Update) {
         self.update(animated: trueUnlessReduceMotionEnabled)
         updateUnreadState()
+    }
+    
+    // MARK: TabNavRootViewControllerType
+    
+    func didSingleTapTab() {
+        feed.collectionView.scrollToTop(animated: true)
+    }
+    
+    func didDoubleTapTab() {
+        didSingleTapTab()
+    }
+    
+    // MARK: ReviewGitHubAccessDelegate
+    func reviewGitHubAccessButtonTapped() {
+        //copied/pasted from SettingsViewController... could consolidate
+        guard let url = URL(string: "https://github.com/settings/connections/applications/\(Secrets.GitHub.clientId)")
+            else { fatalError("Should always create GitHub issue URL") }
+        // iOS 11 login uses SFAuthenticationSession which shares credentials with Safari.app
+        UIApplication.shared.open(url)
     }
     
 }

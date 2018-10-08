@@ -13,9 +13,9 @@ final class IssueReferencedCell: StyledTextViewCell {
 
     static let inset = UIEdgeInsets(
         top: Styles.Sizes.inlineSpacing,
-        left: Styles.Sizes.eventGutter,
+        left: 0,
         bottom: Styles.Sizes.inlineSpacing,
-        right: Styles.Sizes.eventGutter + Styles.Sizes.icon.width + Styles.Sizes.rowSpacing
+        right: Styles.Sizes.icon.width + Styles.Sizes.rowSpacing
     )
 
     let statusButton = UIButton()
@@ -27,9 +27,9 @@ final class IssueReferencedCell: StyledTextViewCell {
         statusButton.isUserInteractionEnabled = false
         contentView.addSubview(statusButton)
         statusButton.snp.makeConstraints { make in
-            make.right.equalTo(contentView).offset(-Styles.Sizes.eventGutter)
+            make.right.equalToSuperview()
             make.size.equalTo(Styles.Sizes.icon)
-            make.centerY.equalTo(contentView)
+            make.centerY.equalToSuperview()
         }
     }
 
@@ -42,7 +42,7 @@ final class IssueReferencedCell: StyledTextViewCell {
     func configure(_ model: IssueReferencedModel) {
         set(renderer: model.string)
 
-        let buttonState: UIButton.State
+        let buttonState: UIButton.IssueState
         switch model.state {
         case .closed: buttonState = .closed
         case .merged: buttonState = .merged

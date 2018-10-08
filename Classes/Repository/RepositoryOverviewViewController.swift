@@ -10,21 +10,52 @@ import UIKit
 import IGListKit
 import GitHubAPI
 
+class HackScrollIndicatorInsetsCollectionView: UICollectionView {
+    override var scrollIndicatorInsets: UIEdgeInsets {
+        set {
+            super.scrollIndicatorInsets = UIEdgeInsets(top: newValue.top, left: 0, bottom: newValue.bottom, right: 0)
+        }
+        get { return super.scrollIndicatorInsets }
+    }
+}
+
 class RepositoryOverviewViewController: BaseListViewController<NSString>,
-BaseListViewControllerDataSource {
+BaseListViewControllerDataSource,
+RepositoryBranchUpdatable
+{
 
     private let repo: RepositoryDetails
     private let client: RepositoryClient
     private var readme: RepositoryReadmeModel?
+    private var branch: String
+
+//    lazy var _feed: Feed = { Feed(
+//        viewController: self,
+//        delegate: self,
+//        collectionView: HackScrollIndicatorInsetsCollectionView(
+//            frame: .zero,
+//            collectionViewLayout: ListCollectionViewLayout.basic()
+//        ))
+//    }()
+//    override var feed: Feed {
+//        return _feed
+//    }
 
     init(client: GithubClient, repo: RepositoryDetails) {
         self.repo = repo
         self.client = RepositoryClient(githubClient: client, owner: repo.owner, name: repo.name)
+        self.branch = repo.defaultBranch
         super.init(
             emptyErrorMessage: NSLocalizedString("Cannot load README.", comment: "")
         )
         self.dataSource = self
         title = NSLocalizedString("Overview", comment: "")
+//        self.feed.collectionView.contentInset = UIEdgeInsets(
+//            top: Styles.Sizes.rowSpacing,
+//            left: Styles.Sizes.gutter,
+//            bottom: Styles.Sizes.rowSpacing,
+//            right: Styles.Sizes.gutter
+//        )
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -33,6 +64,7 @@ BaseListViewControllerDataSource {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        feed.collectionView.backgroundColor = .white
         makeBackBarItemEmpty()
     }
 
@@ -40,22 +72,15 @@ BaseListViewControllerDataSource {
 
     override func fetch(page: NSString?) {
         let repo = self.repo
-        let width = view.bounds.width
-        let contentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+        let width = view.bounds.width - Styles.Sizes.gutter * 2
+        let contentSizeCategory = UIContentSizeCategory.preferred
+        let branch = self.branch
 
         client.githubClient.client
-            .send(V3RepositoryReadmeRequest(owner: repo.owner, repo: repo.name)) { [weak self] result in
+            .send(V3RepositoryReadmeRequest(owner: repo.owner, repo: repo.name, branch: branch)) { [weak self] result in
             switch result {
             case .success(let response):
                 DispatchQueue.global().async {
-                    let branch: String
-                    if let items = URLComponents(url: response.data.url, resolvingAgainstBaseURL: false)?.queryItems,
-                        let index = items.index(where: { $0.name == "ref" }),
-                        let value = items[index].value {
-                        branch = value
-                    } else {
-                        branch = "master"
-                    }
 
                     let models = MarkdownModels(
                         response.data.content,
@@ -64,6 +89,7 @@ BaseListViewControllerDataSource {
                         width: width,
                         viewerCanUpdate: false,
                         contentSizeCategory: contentSizeCategory,
+                        isRoot: false,
                         branch: branch
                     )
                     let model = RepositoryReadmeModel(models: models)
@@ -99,6 +125,14 @@ BaseListViewControllerDataSource {
             layoutInsets: view.safeAreaInsets, 
             type: .readme
         )
+    }
+    
+    //Mark: RepositoryBranchUpdatable
+    
+    func updateBranch(to newBranch: String) {
+        guard self.branch != newBranch else { return }
+        self.branch = newBranch
+        fetch(page: nil)
     }
 
 }

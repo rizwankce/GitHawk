@@ -16,6 +16,13 @@ import MessageViewController
 import Squawk
 import ContextMenu
 import GitHubAPI
+import ImageAlertAction
+
+extension ListDiffable {
+    var needsSpacer: Bool {
+        return self is IssueCommentModel || self is IssueReviewModel
+    }
+}
 
 final class IssuesViewController:
     MessageViewController,
@@ -25,7 +32,9 @@ final class IssuesViewController:
     FeedSelectionProviding,
     IssueNeckLoadSectionControllerDelegate,
     FlatCacheListener,
-    IssueCommentSectionControllerDelegate {
+    IssueCommentSectionControllerDelegate,
+    IssueTextActionsViewSendDelegate,
+    MessageTextViewListener {
 
     private let client: GithubClient
     private let model: IssueDetailsModel
@@ -34,16 +43,25 @@ final class IssuesViewController:
     private var bookmarkNavController: BookmarkNavigationController? = nil
     private var autocompleteController: AutocompleteController!
     private let manageController: IssueManagingContextController
+    private let threadInset = UIEdgeInsets(
+        top: Styles.Sizes.rowSpacing / 2,
+        left: Styles.Sizes.gutter,
+        bottom: 2 * Styles.Sizes.rowSpacing + Styles.Sizes.tableCellHeight,
+        right: Styles.Sizes.gutter
+    )
+    private let bookmarkIconInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
 
     private var needsScrollToBottom = false
     private var lastTimelineElement: ListDiffable?
+    private var actions: IssueTextActionsView?
 
     // must fetch collaborator info from API before showing editing controls
     private var viewerIsCollaborator = false
 
     lazy private var feed: Feed = {
         let f = Feed(viewController: self, delegate: self, managesLayout: false)
-        f.collectionView.contentInset = Styles.Sizes.threadInset
+        f.collectionView.contentInset = threadInset
+        f.collectionView.backgroundColor = .white
         return f
     }()
 
@@ -52,7 +70,7 @@ final class IssuesViewController:
             let hidden: Bool
             if let id = resultID,
                 let result = self.client.cache.get(id: id) as IssueResult? {
-                hidden = result.status.locked && !viewerIsCollaborator
+                hidden = result.labels.locked && !viewerIsCollaborator
 
                 let bookmark = Bookmark(
                     type: result.pullRequest ? .pullRequest : .issue,
@@ -152,7 +170,7 @@ final class IssuesViewController:
         view.backgroundColor = Styles.Colors.background
 
         // setup message view properties
-        configure(target: self, action: #selector(didPressButton(_:)))
+        configure()
 
         let getMarkdownBlock = { [weak self] () -> (String) in
             return self?.messageView.text ?? ""
@@ -163,10 +181,16 @@ final class IssuesViewController:
             repo: model.repo,
             owner: model.owner,
             addBorder: false,
-            supportsImageUpload: true
+            supportsImageUpload: true,
+            showSendButton: true
         )
         // text input bar uses UIVisualEffectView, don't try to match it
         actions.backgroundColor = .clear
+        actions.sendDelegate = self
+        self.actions = actions
+
+        actions.sendButtonEnabled = !messageView.textView.text.isEmpty
+        messageView.textView.add(listener: self)
 
         textActionsController.configure(client: client, textView: messageView.textView, actions: actions)
         textActionsController.viewController = self
@@ -175,9 +199,12 @@ final class IssuesViewController:
         messageView.add(contentView: actions)
         
         //show disabled bookmark button until issue has finished loading
-        navigationItem.rightBarButtonItems = [ moreOptionsItem, BookmarkNavigationController.disabledNavigationItem ]
+        let disabledNavItem = BookmarkNavigationController.disabledNavigationItem
+        disabledNavItem.imageInsets = bookmarkIconInset
+        navigationItem.rightBarButtonItems = [ moreOptionsItem, disabledNavItem ]
 
-        view.addSubview(manageController.manageButton)
+        // insert below so button doesn't appear above autocomplete
+        view.insertSubview(manageController.manageButton, belowSubview: messageView)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -202,10 +229,10 @@ final class IssuesViewController:
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        feed.collectionView.updateSafeInset(container: view, base: Styles.Sizes.threadInset)
+        feed.collectionView.updateSafeInset(container: view, base: threadInset)
     }
 
-    override func didLayout() {
+    override func didLayout() {    
         let manageButtonSize = manageController.manageButton.bounds.size
         manageController.manageButton.frame = CGRect(
             origin: CGPoint(
@@ -216,19 +243,6 @@ final class IssuesViewController:
     }
 
     // MARK: Private API
-
-    @objc func didPressButton(_ sender: Any?) {
-        // get text before calling super b/c it will clear it
-        let text = messageView.text
-        messageView.text = ""
-
-        if let id = resultID {
-            addCommentClient.addComment(
-                subjectId: id,
-                body: text
-            )
-        }
-    }
 
     var externalURL: URL {
         return URL(string: "https://github.com/\(model.owner)/\(model.repo)/issues/\(model.number)")!
@@ -250,6 +264,7 @@ final class IssuesViewController:
         guard let rightbarButtonItems = navigationItem.rightBarButtonItems else { return }
         guard let bookmarkItem = rightbarButtonItems.last else { return }
         bookmarkNavController?.configureNavigationItem(bookmarkItem)
+        bookmarkItem.imageInsets = bookmarkIconInset
     }
 
     func viewRepoAction() -> UIAlertAction? {
@@ -257,6 +272,7 @@ final class IssuesViewController:
         return action(
             owner: model.owner,
             repo: model.repo,
+            icon: #imageLiteral(resourceName: "repo"),
             branch: result.defaultBranch,
             issuesEnabled: result.hasIssuesEnabled,
             client: client
@@ -358,7 +374,7 @@ final class IssuesViewController:
     @objc func onNavigationTitle(sender: UIView) {
         let alert = UIAlertController.configured(preferredStyle: .actionSheet)
         alert.addActions([
-            action(owner: model.owner),
+            action(owner: model.owner, icon: #imageLiteral(resourceName: "organization")),
             viewRepoAction(),
             AlertAction.cancel()
             ])
@@ -371,13 +387,11 @@ final class IssuesViewController:
     func objects(for listAdapter: ListAdapter) -> [ListDiffable] {
         guard let current = self.result else { return [] }
 
-        var objects: [ListDiffable] = [current.status]
+        var objects = [ListDiffable]()
 
         // BEGIN collect metadata that lives between title and root comment
         var metadata = [ListDiffable]()
-        if current.labels.labels.count > 0 {
-            metadata.append(current.labels)
-        }
+        metadata.append(current.labels)
         if let milestone = current.milestone {
             metadata.append(milestone)
         }
@@ -392,29 +406,44 @@ final class IssuesViewController:
         }
         // END metadata collection
         
-        objects.append(IssueTitleModel(string: current.title, trailingMetadata: metadata.count > 0))
+        objects.append(IssueTitleModel(string: current.title))
+        objects += metadata
         
         if let targetBranch = current.targetBranch {
             objects.append(targetBranch)
         }
 
-        objects += metadata
-
         if let rootComment = current.rootComment {
             objects.append(rootComment)
+            objects.append(SpacerModel(position: objects.count))
         }
 
         if current.hasPreviousPage {
             objects.append(IssueNeckLoadModel())
         }
 
-        objects += current.timelineViewModels
+        let timelineViewModels = current.timelineViewModels
+        for (i, model) in timelineViewModels.enumerated() {
+            let needsSpacer = model.needsSpacer
+
+            // append a spacer if the previous timeline element wasn't a comment
+            if needsSpacer, i > 0
+                && !(timelineViewModels[i-1].needsSpacer || timelineViewModels[i-1].needsSpacer) {
+                objects.append(SpacerModel(position: objects.count))
+            }
+
+            objects.append(model)
+
+            // always append a spacer unless its the last item in the timeline
+            if needsSpacer, i < timelineViewModels.count - 1 {
+                objects.append(SpacerModel(position: objects.count))
+            }
+        }
 
         // side effect so to jump to the last element when auto scrolling
         lastTimelineElement = objects.last
 
-        if viewerIsCollaborator,
-            current.status.status == .open,
+        if current.labels.status.status == .open,
             let merge = current.mergeModel {
             objects.append(merge)
         }
@@ -424,7 +453,15 @@ final class IssuesViewController:
 
     func listAdapter(_ listAdapter: ListAdapter, sectionControllerFor object: Any) -> ListSectionController {
         switch object {
+        // header and metadata
         case is IssueTitleModel: return IssueTitleSectionController()
+        case is IssueLabelsModel: return IssueLabelsSectionController(issue: model)
+        case is IssueAssigneesModel: return IssueAssigneesSectionController()
+        case is Milestone: return IssueMilestoneSectionController(issueModel: model)
+        case is IssueFileChangesModel: return IssueViewFilesSectionController(issueModel: model, client: client)
+        case is IssueTargetBranchModel: return IssueTargetBranchSectionController()
+
+        // timeline
         case is IssueCommentModel:
             return IssueCommentSectionController(
                 model: model,
@@ -432,28 +469,33 @@ final class IssuesViewController:
                 autocomplete: autocompleteController.autocomplete.copy,
                 issueCommentDelegate: self
             )
-        case is IssueLabelsModel: return IssueLabelsSectionController(issue: model)
-        case is IssueStatusModel: return IssueStatusSectionController()
         case is IssueLabeledModel: return IssueLabeledSectionController(issueModel: model)
         case is IssueStatusEventModel: return IssueStatusEventSectionController(issueModel: model)
+        case is IssueReferencedModel: return IssueReferencedSectionController(client: client)
+        case is IssueReferencedCommitModel: return IssueReferencedCommitSectionController()
+        case is IssueRenamedModel: return IssueRenamedSectionController()
+        case is IssueRequestModel: return IssueRequestSectionController()
+        case is IssueMilestoneEventModel: return IssueMilestoneEventSectionController()
+        case is IssueCommitModel: return IssueCommitSectionController(issueModel: model)
+        case is SpacerModel: return SpacerSectionController()
+
+        // controls
+        case is IssueNeckLoadModel: return IssueNeckLoadSectionController(delegate: self)
+        case is IssueMergeModel: return IssueMergeSectionController(
+            model: model,
+            client: client,
+            mergeCapable: viewerIsCollaborator,
+            resultID: resultID
+        )
+
+        // deprecated
         case is IssueDiffHunkModel: return IssueDiffHunkSectionController()
         case is IssueReviewModel: return IssueReviewSectionController(
             model: model,
             client: client,
             autocomplete: autocompleteController.autocomplete.copy
             )
-        case is IssueReferencedModel: return IssueReferencedSectionController(client: client)
-        case is IssueReferencedCommitModel: return IssueReferencedCommitSectionController()
-        case is IssueRenamedModel: return IssueRenamedSectionController()
-        case is IssueRequestModel: return IssueRequestSectionController()
-        case is IssueAssigneesModel: return IssueAssigneesSectionController()
-        case is IssueMilestoneEventModel: return IssueMilestoneEventSectionController()
-        case is IssueCommitModel: return IssueCommitSectionController(issueModel: model)
-        case is IssueNeckLoadModel: return IssueNeckLoadSectionController(delegate: self)
-        case is Milestone: return IssueMilestoneSectionController(issueModel: model)
-        case is IssueFileChangesModel: return IssueViewFilesSectionController(issueModel: model, client: client)
-        case is IssueMergeModel: return IssueMergeSectionController(model: model, client: client, resultID: resultID)
-        case is IssueTargetBranchModel: return IssueTargetBranchSectionController()
+
         default: fatalError("Unhandled object: \(object)")
         }
     }
@@ -489,12 +531,13 @@ final class IssuesViewController:
         viewerCanUpdate: Bool,
         viewerCanDelete: Bool
         ) {
+        self.actions?.isProcessing = false
         guard let previous = result,
             let comment = createCommentModel(
                 id: id,
                 commentFields: commentFields,
                 reactionFields: reactionFields,
-                contentSizeCategory: UIApplication.shared.preferredContentSizeCategory,
+                contentSizeCategory: UIContentSizeCategory.preferred,
                 width: view.bounds.width,
                 owner: model.owner,
                 repo: model.repo,
@@ -514,6 +557,7 @@ final class IssuesViewController:
     }
 
     func didFailSendingComment(client: AddCommentClient, subjectId: String, body: String) {
+        self.actions?.isProcessing = false
         messageView.text = body
     }
 
@@ -546,7 +590,7 @@ final class IssuesViewController:
         setMessageView(hidden: false, animated: true)
         messageView.textView.becomeFirstResponder()
         let quote = getCommentUntilNewLine(from: commentModel.rawMarkdown)
-        messageView.text = ">\(quote)\n\n@\(commentModel.details.login) "
+        messageView.text = "\(messageView.text)\n>\(quote)\n\n@\(commentModel.details.login) "
 
         feed.adapter.scroll(to: commentModel, padding: Styles.Sizes.rowSpacing)
     }
@@ -558,5 +602,30 @@ final class IssuesViewController:
         }
         return substring + " ..."
     }
+
+    // MARK: IssueTextActionsViewSendDelegate
+
+    func didSend(for actionsView: IssueTextActionsView) {
+        // get text before calling super b/c it will clear it
+        let text = messageView.text
+        messageView.text = ""
+        actions?.sendButtonEnabled = false
+
+        if let id = resultID {
+            addCommentClient.addComment(
+                subjectId: id,
+                body: text
+            )
+        }
+    }
+
+    // MARK: MessageTextViewListener
+
+    func didChange(textView: MessageTextView) {
+        actions?.sendButtonEnabled = !textView.text.isEmpty
+    }
+
+    func didChangeSelection(textView: MessageTextView) {}
+    func willChangeRange(textView: MessageTextView, to range: NSRange) {}
 
 }

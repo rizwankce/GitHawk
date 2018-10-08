@@ -22,8 +22,8 @@ def testing_pods
   pod 'Fabric'
   pod 'Crashlytics'
   pod 'Tabman', '~> 1.8'
-  pod 'Firebase/Core'
-  pod 'Firebase/Database' 
+  pod 'ImageAlertAction'
+  pod 'FMDB'
 
   # prerelease pods
   pod 'IGListKit/Swift', :git => 'https://github.com/Instagram/IGListKit.git', :branch => 'swift'
@@ -74,4 +74,12 @@ end
 
 post_install do |installer|
   system("sh tools/generateAcknowledgements.sh")
+  
+  installer.pods_project.targets.each do |target|  
+    target.build_configurations.each do |config|  
+        if config.build_settings['SDKROOT'] == 'watchos'  
+          config.build_settings['WATCHOS_DEPLOYMENT_TARGET'] = '4.2'  
+        end  
+    end  
+end  
 end

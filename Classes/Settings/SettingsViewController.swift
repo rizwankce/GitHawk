@@ -17,8 +17,6 @@ NewIssueTableViewControllerDelegate {
 
     // must be injected
     var sessionManager: GitHubSessionManager!
-    weak var rootNavigationManager: RootNavigationManager?
-
     var client: GithubClient!
 
     @IBOutlet weak var versionLabel: UILabel!
@@ -27,17 +25,22 @@ NewIssueTableViewControllerDelegate {
     @IBOutlet weak var reviewOnAppStoreCell: StyledTableCell!
     @IBOutlet weak var reportBugCell: StyledTableCell!
     @IBOutlet weak var viewSourceCell: StyledTableCell!
+    @IBOutlet weak var setDefaultReaction: StyledTableCell!
     @IBOutlet weak var signOutCell: StyledTableCell!
-    @IBOutlet weak var backgroundFetchSwitch: UISwitch!
-    @IBOutlet weak var openSettingsButton: UIButton!
+    @IBOutlet weak var badgeSwitch: UISwitch!
+    @IBOutlet weak var badgeSettingsButton: UIButton!
     @IBOutlet weak var badgeCell: UITableViewCell!
     @IBOutlet weak var markReadSwitch: UISwitch!
     @IBOutlet weak var accountsCell: StyledTableCell!
     @IBOutlet weak var apiStatusLabel: UILabel!
     @IBOutlet weak var apiStatusView: UIView!
     @IBOutlet weak var signatureSwitch: UISwitch!
-
-    override func viewDidLoad() {
+    @IBOutlet weak var defaultReactionLabel: UILabel!
+    @IBOutlet weak var pushSwitch: UISwitch!
+    @IBOutlet weak var pushCell: UITableViewCell!
+    @IBOutlet weak var pushSettingsButton: UIButton!
+  
+  override func viewDidLoad() {
         super.viewDidLoad()
 
         versionLabel.text = Bundle.main.prettyVersionString
@@ -46,7 +49,6 @@ NewIssueTableViewControllerDelegate {
         signatureSwitch.isOn = Signature.enabled
 
         updateBadge()
-        style()
 
         NotificationCenter.default.addObserver(
             self,
@@ -58,6 +60,10 @@ NewIssueTableViewControllerDelegate {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+      
+        defaultReactionLabel.text = ReactionContent.defaultReaction?.emoji
+            ?? NSLocalizedString("Off", comment: "")
+
         rz_smoothlyDeselectRows(tableView: tableView)
         accountsCell.detailTextLabel?.text = sessionManager.focusedUserSession?.username ?? Constants.Strings.unknown
 
@@ -108,6 +114,8 @@ NewIssueTableViewControllerDelegate {
             onReportBug()
         } else if cell === viewSourceCell {
             onViewSource()
+        } else if cell === setDefaultReaction {
+            onSetDefaultReaction()
         } else if cell === signOutCell {
             onSignOut()
         }
@@ -139,17 +147,16 @@ NewIssueTableViewControllerDelegate {
     }
   
     func onReviewOnAppStore() {
-      guard let url = URL(string: "itms-apps://itunes.apple.com/us/app/githawk-for-github/id1252320249")
-        else { fatalError("Should always be valid app store URL") }
-      if UIApplication.shared.canOpenURL(url) {
-        UIApplication.shared.open(url)
-      }
+        guard let url = URL(string: "itms-apps://itunes.apple.com/app/id1252320249?action=write-review")
+            else { fatalError("Should always be valid app store URL") }
+        if UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        }
     }
 
     func onReportBug() {
-        guard let client = client,
-            let viewController = NewIssueTableViewController.create(
-                client: client,
+        guard let viewController = NewIssueTableViewController.create(
+                client: GithubClient(userSession: sessionManager.focusedUserSession),
                 owner: "GitHawkApp",
                 repo: "GitHawk",
                 signature: .bugReport
@@ -178,6 +185,10 @@ NewIssueTableViewControllerDelegate {
         let repoViewController = RepositoryViewController(client: client, repo: repo)
         navigationController?.showDetailViewController(repoViewController, sender: self)
     }
+  
+    func onSetDefaultReaction() {
+        //showDefaultReactionMenu()
+    }
 
     func onSignOut() {
         let title = NSLocalizedString("Are you sure?", comment: "")
@@ -201,33 +212,43 @@ NewIssueTableViewControllerDelegate {
     }
 
     @objc func updateBadge() {
-        BadgeNotifications.check { state in
-            let authorized: Bool
-            let enabled: Bool
-            switch state {
-            case .initial:
-                // throwing switch will prompt
-                authorized = true
-                enabled = false
-            case .denied:
-                authorized = false
-                enabled = false
-            case .disabled:
-                authorized = true
-                enabled = false
-            case .enabled:
-                authorized = true
-                enabled = true
+        BadgeNotifications.check { result in
+            let showSwitches: Bool
+            let pushEnabled: Bool
+            let badgeEnabled: Bool
+
+            switch result {
+            case .error:
+                showSwitches = false
+                pushEnabled = false
+                badgeEnabled = false
+            case .success(let badge, let push):
+                showSwitches = true
+                pushEnabled = push
+                badgeEnabled = badge
             }
-            self.badgeCell.accessoryType = authorized ? .none : .disclosureIndicator
-            self.openSettingsButton.isHidden = authorized
-            self.backgroundFetchSwitch.isHidden = !authorized
-            self.backgroundFetchSwitch.isOn = enabled
+
+            self.badgeCell.accessoryType = showSwitches ? .none : .disclosureIndicator
+            self.badgeSettingsButton.isHidden = showSwitches
+            self.badgeSwitch.isHidden = !showSwitches
+            self.badgeSwitch.isOn = badgeEnabled
+
+            self.pushCell.accessoryType = showSwitches ? .none : .disclosureIndicator
+            self.pushSettingsButton.isHidden = showSwitches
+            self.pushSwitch.isHidden = !showSwitches
+            self.pushSwitch.isOn = pushEnabled
         }
     }
 
-    @IBAction func onBackgroundFetchChanged() {
-        BadgeNotifications.isEnabled = backgroundFetchSwitch.isOn
+    @IBAction func onBadgeChanged() {
+        BadgeNotifications.isBadgeEnabled = badgeSwitch.isOn
+        BadgeNotifications.configure { _ in
+            self.updateBadge()
+        }
+    }
+
+    @IBAction func onPushChanged() {
+        BadgeNotifications.isLocalNotificationEnabled = pushSwitch.isOn
         BadgeNotifications.configure { _ in
             self.updateBadge()
         }
@@ -241,11 +262,6 @@ NewIssueTableViewControllerDelegate {
     @IBAction func onMarkRead(_ sender: Any) {
         NotificationModelController.setReadOnOpen(open: markReadSwitch.isOn)
     }
-
-	private func style() {
-		[backgroundFetchSwitch, markReadSwitch, signatureSwitch]
-			.forEach({ $0.onTintColor = Styles.Colors.Green.medium.color })
-	}
 
     @IBAction func onSignature(_ sender: Any) {
         Signature.enabled = signatureSwitch.isOn

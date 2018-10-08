@@ -39,7 +39,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 3)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "this is the first line\n")
@@ -59,7 +60,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 2)
         XCTAssertEqual((models[0] as! IssueCommentImageModel).url.absoluteString, "https://apple.com")
@@ -78,7 +80,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 2)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "this is the first line\nthen some more text\n")
@@ -95,7 +98,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 1)
         XCTAssertEqual((models[0] as! IssueCommentImageModel).url.absoluteString, "https://apple.com")
@@ -115,7 +119,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 5)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "this is the first line\n")
@@ -139,7 +144,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 3)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "this is some text")
@@ -162,7 +168,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 3)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "this is some text")
@@ -187,7 +194,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 5)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "this is the first line")
@@ -205,7 +213,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 1)
     }
@@ -225,7 +234,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 5)
         XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "line one")
@@ -246,7 +256,8 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         XCTAssertEqual(models.count, 1)
 
@@ -267,10 +278,11 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         
-        XCTAssertEqual((models[1] as! StyledTextRenderer).string.allText, "See: [Pitch] Introducing the \"Unwrap or Die\" operator to the standard library")
+        XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "...adoption.\nSee: [Pitch] Introducing the \"Unwrap or Die\" operator to the standard library")
     }
     
     func test_URLThatContainsIssueReferenceLinkInDescription() {
@@ -287,12 +299,11 @@ class IssueTests: XCTestCase {
             repo: "repo",
             width: 0,
             viewerCanUpdate: false,
-            contentSizeCategory: .large
+            contentSizeCategory: .large,
+            isRoot: false
         )
         
-        XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "This is the implementation for apple/swift-evolution#793")
-        XCTAssertEqual((models[1] as! StyledTextRenderer).string.allText, "Note: One of the new tests fails...")
-        
+        XCTAssertEqual((models[0] as! StyledTextRenderer).string.allText, "This is the implementation for apple/swift-evolution#793\nNote: One of the new tests fails...")        
     }
 
 }

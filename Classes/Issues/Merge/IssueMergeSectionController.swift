@@ -17,16 +17,24 @@ ListBindingSectionControllerSelectionDelegate {
     private let model: IssueDetailsModel
     private let client: GithubClient
     private let resultID: String?
+    private var isMergeCapable = false
     private var loading = false
 
-    init(model: IssueDetailsModel, client: GithubClient, resultID: String?) {
+    init(
+        model: IssueDetailsModel,
+        client: GithubClient,
+        mergeCapable: Bool,
+        resultID: String?
+        ) {
         self.model = model
         self.client = client
+        self.isMergeCapable = mergeCapable
         self.resultID = resultID
         super.init()
         dataSource = self
         selectionDelegate = self
-        inset = UIEdgeInsets(top: Styles.Sizes.rowSpacing, left: 0, bottom: 0, right: 0)
+        let row = Styles.Sizes.rowSpacing
+        inset = UIEdgeInsets(top: 3*row, left: 0, bottom: row, right: 0)
     }
 
     // MARK: Private API
@@ -91,19 +99,43 @@ ListBindingSectionControllerSelectionDelegate {
 
         viewModels += object.contexts as [ListDiffable]
 
-        let mergeable = object.state == .mergeable
+        let title: String
+        let state: IssueMergeSummaryModel.State
+        let buttonEnabled: Bool
+        switch object.state {
+        case .clean, .hasHooks, .unstable:
+            title = NSLocalizedString("No conflicts with base branch", comment: "")
+            state = .success
+            buttonEnabled = true
+        case .behind:
+            title = NSLocalizedString("Head ref is out of date", comment: "")
+            state = .warning
+            buttonEnabled = false
+        case .blocked:
+            title = NSLocalizedString("Not authorized to merge", comment: "")
+            state = .failure
+            buttonEnabled = false
+        case .unknown, .__unknown(_):
+            title = NSLocalizedString("Merge status unknown", comment: "")
+            state = .pending
+            buttonEnabled = false
+        case .dirty:
+            title = NSLocalizedString("Merge conflicts found", comment: "")
+            state = .warning
+            buttonEnabled = false
+        }
         viewModels.append(IssueMergeSummaryModel(
-            title: mergeable ?
-                NSLocalizedString("No conflicts with base branch", comment: "")
-                : NSLocalizedString("Merge conflicts found", comment: ""),
-            state: mergeable ? .success : .warning
+            title: title,
+            state: state
         ))
 
-        viewModels.append(IssueMergeButtonModel(
-            enabled: mergeable,
-            type: preferredMergeType,
-            loading: loading
-        ))
+        if isMergeCapable {
+            viewModels.append(IssueMergeButtonModel(
+                enabled: buttonEnabled,
+                type: preferredMergeType,
+                loading: loading
+            ))
+        }
 
         return viewModels
     }
@@ -138,8 +170,10 @@ ListBindingSectionControllerSelectionDelegate {
         guard let cell = collectionContext?.dequeueReusableCell(of: cellType, for: self, at: index) as? UICollectionViewCell & ListBindable
             else { fatalError() }
 
-        if let cell = cell as? IssueCommentBaseCell {
-            cell.border = index == 0 ? .head : index == self.viewModels.count - 1 ? .tail : .neck
+        if let cell = cell as? CardCollectionViewCell {
+            cell.border = index == 0
+                ? index == self.viewModels.count - 1 ? .full : .head
+                : index == self.viewModels.count - 1 ? .tail : .neck
         }
         if let cell = cell as? IssueMergeButtonCell {
             cell.delegate = self
@@ -151,6 +185,9 @@ ListBindingSectionControllerSelectionDelegate {
     // MARK: MergeButtonDelegate
 
     func didSelect(button: MergeButton) {
+      
+        viewController?.view.endEditing(true)
+      
         let alert = UIAlertController.configured(
             title: NSLocalizedString("Confirm merge", comment: ""),
             message: NSLocalizedString("Are you sure you want to merge this pull request?", comment: ""),
@@ -170,6 +207,8 @@ ListBindingSectionControllerSelectionDelegate {
 
     func didSelectOptions(button: MergeButton) {
         guard let types = self.object?.availableTypes, types.count > 0 else { return }
+
+        viewController?.view.endEditing(true)
 
         let alert = UIAlertController.configured(
             title: NSLocalizedString("Change merge type", comment: ""),

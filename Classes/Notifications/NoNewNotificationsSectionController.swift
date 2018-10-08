@@ -8,32 +8,29 @@
 
 import UIKit
 import IGListKit
-import Crashlytics
 
 final class NoNewNotificationSectionController: ListSwiftSectionController<String> {
 
     private let layoutInsets: UIEdgeInsets
-    private let client = NotificationEmptyMessageClient()
+    private let loader = InboxZeroLoader()
+    weak var reviewGitHubAccessDelegate: ReviewGitHubAccessDelegate?
 
-    enum State {
-        case loading
-        case success(NotificationEmptyMessageClient.Message)
-        case error
-    }
-    private var state: State = .loading
-
-    init(layoutInsets: UIEdgeInsets) {
+    init(layoutInsets: UIEdgeInsets, reviewGitHubAccessDelegate: ReviewGitHubAccessDelegate) {
         self.layoutInsets = layoutInsets
         super.init()
-        client.fetch { [weak self] (result) in
-            self?.handleFinished(result)
+        self.reviewGitHubAccessDelegate = reviewGitHubAccessDelegate
+        loader.load { [weak self] success in
+            if success {
+                self?.update()
+            }
         }
     }
 
     override func createBinders(from value: String) -> [ListBinder] {
+        let latest = loader.message()
         return [
             binder(
-                value,
+                latest.emoji,
                 cellType: ListCellType.class(NoNewNotificationsCell.self),
                 size: { [layoutInsets] in
                     return CGSize(
@@ -42,36 +39,15 @@ final class NoNewNotificationSectionController: ListSwiftSectionController<Strin
                     )
             },
                 configure: { [weak self] in
+                    guard let strongSelf = self else { return }
                     // TODO accessing the value seems to be required for this to compile
                     print($1.value)
-                    self?.configure($0)
+                    $0.configure(emoji: latest.emoji,
+                                 message: latest.message,
+                                 reviewGitHubAccessDelegate: strongSelf.reviewGitHubAccessDelegate
+                    )
                 })
         ]
-    }
-
-    // MARK: Private API
-
-    private func configure(_ cell: NoNewNotificationsCell) {
-        switch state {
-        case .loading: break
-        case .success(let message): cell.configure(emoji: message.emoji, message: message.text)
-        case .error: cell.configure(emoji: "🎉", message: NSLocalizedString("Inbox zero!", comment: ""))
-        }
-    }
-
-    private func handleFinished(_ result: Result<NotificationEmptyMessageClient.Message>) {
-        switch result {
-        case .success(let message):
-            state = .success(message)
-        case .error(let error):
-            state = .error
-            let msg = error?.localizedDescription ?? ""
-            Answers.logCustomEvent(withName: "fb-fetch-error", customAttributes: ["error": msg])
-        }
-
-        guard let cell = collectionContext?.cellForItem(at: 0, sectionController: self) as? NoNewNotificationsCell
-            else { return }
-        configure(cell)
     }
 
 }

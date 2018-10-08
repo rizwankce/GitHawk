@@ -12,17 +12,20 @@ struct ContrastContextMenuItem {
     
     let title: String
     let iconName: String?
+    let iconColor: UIColor?
     let separator: Bool
     let action: ((ContrastContextMenu) -> Void)?
 
     init(
         title: String,
         iconName: String? = nil,
+        iconColor: UIColor? = Styles.Colors.Blue.medium.color,
         separator: Bool = false,
         action: ((ContrastContextMenu) -> Void)? = nil
         ) {
         self.title = title
-        self.iconName = iconName
+        self.iconName  = iconName
+        self.iconColor = iconColor
         self.separator = separator
         self.action = action
     }
@@ -51,6 +54,16 @@ final class ContrastContextMenu: UITableViewController {
 
             border = contentView.addBorder(.top)
             border?.backgroundColor = Styles.Colors.Gray.medium.color
+        }
+        
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard let frame = textLabel?.frame, imageView != nil else { return }
+            textLabel?.frame = CGRect(x: 55,
+                                      y: frame.minY,
+                                      width: frame.width,
+                                      height: frame.height
+            )
         }
 
         required init?(coder aDecoder: NSCoder) {
@@ -91,6 +104,10 @@ final class ContrastContextMenu: UITableViewController {
         cell.textLabel?.text = item.title
         if let iconName = item.iconName {
             cell.imageView?.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+        }
+
+        if let iconColor = item.iconColor {
+            cell.imageView?.tintColor = iconColor
         }
 
         if let cell = cell as? Cell {

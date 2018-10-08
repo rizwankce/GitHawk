@@ -76,7 +76,6 @@ TabNavRootViewControllerType {
 
         searchBar.delegate = self
         searchBar.placeholder = Constants.Strings.searchBookmarks
-        searchBar.tintColor = Styles.Colors.Blue.medium.color
         searchBar.backgroundColor = .clear
         searchBar.searchBarStyle = .minimal
         navigationItem.titleView = searchBar
@@ -99,6 +98,11 @@ TabNavRootViewControllerType {
             collectionView.collectionViewLayout.invalidateForOrientationChange()
         }
     }
+  
+    override func viewWillDisappear(_ animated: Bool) {
+      searchBar.resignFirstResponder()
+    }
+
 
     private func update(animated: Bool) {
         adapter.performUpdates(animated: animated)
@@ -148,6 +152,7 @@ TabNavRootViewControllerType {
     }
 
     func didDelete(bookmarkSectionController: BookmarkSectionController, viewModel: BookmarkViewModel) {
+        searchBar.resignFirstResponder()
         bookmarkStore.remove(viewModel.bookmark)
         update(animated: true)
     }
@@ -155,7 +160,7 @@ TabNavRootViewControllerType {
     // MARK: ListAdapterDataSource
 
     func objects(for listAdapter: ListAdapter) -> [ListDiffable] {
-        let contentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+        let contentSizeCategory = UIContentSizeCategory.preferred
         let width = view.bounds.width
         var bookmarks: [ListDiffable]
         switch state {

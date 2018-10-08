@@ -19,37 +19,37 @@ ContextMenuDelegate {
     private enum Action {
         static let labels = IssueManagingActionModel(
             key: "tag",
-            label: NSLocalizedString("Labels", comment: ""),
+            label: Constants.Strings.labels,
             imageName: "tag",
             color: "3f88f7".color
         )
         static let milestone = IssueManagingActionModel(
             key: "milestone",
-            label: NSLocalizedString("Milestone", comment: ""),
+            label: Constants.Strings.milestone,
             imageName: "milestone",
             color: "6847ba".color
         )
         static let assignees = IssueManagingActionModel(
             key: "person",
-            label: NSLocalizedString("Assignees", comment: ""),
+            label: Constants.Strings.assignees,
             imageName: "person",
             color: "e77230".color
         )
         static let reviewers = IssueManagingActionModel(
             key: "reviewer",
-            label: NSLocalizedString("Reviewers", comment: ""),
+            label: Constants.Strings.reviewers,
             imageName: "reviewer",
             color: "50a451".color
         )
         static let lock = IssueManagingActionModel(
             key: "lock", // share key so lock/unlock just updates cell
-            label: NSLocalizedString("Lock", comment: ""),
+            label: Constants.Strings.lock,
             imageName: "lock",
             color: Styles.Colors.Gray.dark.color
         )
         static let unlock = IssueManagingActionModel(
             key: "lock", // share key so lock/unlock just updates cell
-            label: NSLocalizedString("Unlock", comment: ""),
+            label: Constants.Strings.unlock,
             imageName: "key",
             color: Styles.Colors.Gray.dark.color
         )
@@ -206,13 +206,13 @@ ContextMenuDelegate {
             if object.pullRequest {
                 models.append(Action.reviewers)
             }
-            if result.status.locked {
+            if result.labels.locked {
                 models.append(Action.unlock)
             } else {
                 models.append(Action.lock)
             }
         }
-        switch result.status.status {
+        switch result.labels.status.status {
         case .closed: models.append(Action.reopen)
         case .open: models.append(Action.close)
         case .merged: break // can't do anything

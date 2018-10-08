@@ -12,15 +12,18 @@ import Pageboy
 import TUSafariActivity
 import SafariServices
 import Squawk
+import ContextMenu
 
 class RepositoryViewController: TabmanViewController,
 PageboyViewControllerDataSource,
-NewIssueTableViewControllerDelegate {
+NewIssueTableViewControllerDelegate,
+ContextMenuDelegate {
 
     private let repo: RepositoryDetails
     private let client: GithubClient
     private let controllers: [UIViewController]
     private var bookmarkNavController: BookmarkNavigationController? = nil
+    public private(set) var branch: String
 
     var moreOptionsItem: UIBarButtonItem {
         let rightItem = UIBarButtonItem(image: UIImage(named: "bullets-hollow"), target: self, action: #selector(RepositoryViewController.onMore(sender:)))
@@ -31,6 +34,7 @@ NewIssueTableViewControllerDelegate {
     init(client: GithubClient, repo: RepositoryDetails) {
         self.repo = repo
         self.client = client
+        self.branch = repo.defaultBranch
 
         let bookmark = Bookmark(
             type: .repo,
@@ -91,7 +95,7 @@ NewIssueTableViewControllerDelegate {
         weak var weakSelf = self
         alert.addActions([
             AlertAction(AlertActionBuilder { $0.rootViewController = weakSelf })
-                .view(owner: repo.owner),
+                .view(owner: repo.owner, icon: #imageLiteral(resourceName: "organization")),
             AlertAction.cancel()
             ])
         alert.popoverPresentationController?.setSourceView(sender)
@@ -108,6 +112,34 @@ NewIssueTableViewControllerDelegate {
             items.append(bookmarkItem)
         }
         navigationItem.rightBarButtonItems = items
+    }
+    
+    func switchBranchAction() -> UIAlertAction {
+        return UIAlertAction(
+            title: NSLocalizedString("Switch Branch", comment: ""),
+            style: .default
+        ) {
+            [weak self] action in
+            guard let strongSelf = self else { return }
+            let viewController =
+                RepositoryBranchesViewController(
+                    defaultBranch: strongSelf.repo.defaultBranch,
+                    selectedBranch: strongSelf.branch,
+                    owner: strongSelf.repo.owner,
+                    repo: strongSelf.repo.name,
+                    client: strongSelf.client
+            )
+            
+            strongSelf.showContextualMenu(
+                viewController,
+                options: ContextMenu.Options(
+                    containerStyle: ContextMenu.ContainerStyle(
+                        backgroundColor: Styles.Colors.menuBackgroundColor.color
+                    )
+                ),
+                delegate: self
+            )
+        }
     }
 
     func newIssueAction() -> UIAlertAction? {
@@ -129,7 +161,7 @@ NewIssueTableViewControllerDelegate {
     }
 
     @objc func onMore(sender: UIButton) {
-        let alertTitle = "\(repo.owner)/\(repo.name)"
+        let alertTitle = "\(repo.owner)/\(repo.name):\(branch)"
         let alert = UIAlertController.configured(title: alertTitle, preferredStyle: .actionSheet)
 
         weak var weakSelf = self
@@ -137,9 +169,10 @@ NewIssueTableViewControllerDelegate {
 
         alert.addActions([
             repo.hasIssuesEnabled ? newIssueAction() : nil,
-            AlertAction(alertBuilder).share([repoUrl], activities: [TUSafariActivity()]) {
+            AlertAction(alertBuilder).share([repoUrl], activities: [TUSafariActivity()], type: .shareUrl) {
                 $0.popoverPresentationController?.setSourceView(sender)
             },
+            switchBranchAction(),
             AlertAction.cancel()
         ])
         alert.popoverPresentationController?.setSourceView(sender)
@@ -167,5 +200,19 @@ NewIssueTableViewControllerDelegate {
         let issuesViewController = IssuesViewController(client: client, model: model)
         show(issuesViewController, sender: self)
     }
+    
+    //MARK: ContextMenuDelegate
+    
+    func contextMenuWillDismiss(viewController: UIViewController, animated: Bool) {
+        guard let viewController = viewController as? RepositoryBranchesViewController else { return }
+        self.branch = viewController.selectedBranch
+        controllers.forEach {
+            if let branchUpdatable = $0 as? RepositoryBranchUpdatable {
+                branchUpdatable.updateBranch(to: viewController.selectedBranch)
+            }
+        }
+    }
+    
+    func contextMenuDidDismiss(viewController: UIViewController, animated: Bool) {}
 
 }
